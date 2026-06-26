@@ -9,7 +9,13 @@
     "MixinBlockOpacity",
     "StepHeightAccessor",
     "FovMixin",
-    "GameRendererMixin"
+    "CameraMixin",
+    "GameRendererMixin",
+    "JesusMixin",
+    "AntiHungerMixin",
+    "ReachMixin",
+    "SpeedMineMixin",
+    "NoRenderMixin"
   ],
   "injectors": {
     "defaultRequire": 1
