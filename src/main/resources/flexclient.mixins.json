@@ -7,7 +7,9 @@
     "PlayerMixin",
     "BlockMixin",
     "MixinBlockOpacity",
-    "StepHeightAccessor"
+    "StepHeightAccessor",
+    "FovMixin",
+    "GameRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1
