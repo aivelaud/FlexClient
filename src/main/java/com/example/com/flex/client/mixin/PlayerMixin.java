@@ -17,73 +17,113 @@ import java.util.List;
 @Mixin(ClientPlayerEntity.class)
 public class PlayerMixin {
 
-    // KillAura saldiri hizi siniri - her tick saldirir ise sunucu banlar
-    // Her 8 tick'te bir saldir (yaklasik 2.5 saldiri/saniye)
     private int killAuraCooldown = 0;
-    private static final int KILL_AURA_DELAY = 8;
+    private int autoEatCooldown  = 0;
 
     @Inject(at = @At("HEAD"), method = "tick()V")
     private void onTick(CallbackInfo ci) {
         ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
+        if (player == null || player.getWorld() == null || player.networkHandler == null) return;
 
-        // --- Null guvenligi ---
-        // PojavLauncher'da dunya yuklenmeden mixin tetiklenebilir, cokuyor
-        if (player == null) return;
-        if (player.getWorld() == null) return;
-        if (player.networkHandler == null) return;
-
-        // --- FLY ---
+        // ── FLY ─────────────────────────────────────────────────
         if (ModuleManager.isEnabled("Fly")) {
             player.getAbilities().flying = true;
-            player.getAbilities().setFlySpeed(0.1f);
-            // PojavLauncher'da uygulama olmadan flying bayragi sifirlanir,
-            // her tick'te tekrar set etmek bunu onler
+            float spd = ModuleManager.get("Fly").getFlySpeed();
+            player.getAbilities().setFlySpeed(spd);
         } else {
-            // Fly kapilinca uciyor kalmasin, normal hiza don
-            if (player.getAbilities().flying
-                    && !player.getAbilities().allowFlying) {
+            if (player.getAbilities().flying && !player.getAbilities().allowFlying) {
                 player.getAbilities().flying = false;
-                player.getAbilities().setFlySpeed(0.05f); // varsayilan
+                player.getAbilities().setFlySpeed(0.05f);
             }
         }
 
-        // --- SPEED ---
+        // ── SPEED ────────────────────────────────────────────────
         if (ModuleManager.isEnabled("Speed")) {
-            player.getAbilities().setWalkSpeed(0.2f);
+            float spd = ModuleManager.get("Speed").getWalkSpeed();
+            player.getAbilities().setWalkSpeed(spd);
         } else {
-            // Speed kapilinca normal hiza don
-            player.getAbilities().setWalkSpeed(0.1f); // varsayilan
+            player.getAbilities().setWalkSpeed(0.1f);
         }
 
-        // --- KILLAURA ---
-        if (killAuraCooldown > 0) {
-            killAuraCooldown--;
+        // ── SPRINT ───────────────────────────────────────────────
+        if (ModuleManager.isEnabled("Sprint")) {
+            player.setSprinting(true);
         }
+
+        // ── NO FALL ──────────────────────────────────────────────
+        if (ModuleManager.isEnabled("NoFall")) {
+            if (player.fallDistance > 2.0f) {
+                player.fallDistance = 0f;
+            }
+        }
+
+        // ── ANTI KNOCKBACK ───────────────────────────────────────
+        if (ModuleManager.isEnabled("AntiKnockback")) {
+            player.setVelocity(player.getVelocity().multiply(1, 1, 1));
+        }
+
+        // ── CRITICALS ────────────────────────────────────────────
+        // Kritik vurus: havada oldugun simule et (her saldiri oncesi kucuk ziplama)
+        if (ModuleManager.isEnabled("Criticals")) {
+            if (!player.isOnGround() || player.isTouchingWater()) {
+                // Surekli hafif dusturme ile kritik durumu koruyoruz
+                player.addVelocity(0, 0.001, 0);
+            }
+        }
+
+        // ── KILL AURA ────────────────────────────────────────────
+        if (killAuraCooldown > 0) killAuraCooldown--;
 
         if (ModuleManager.isEnabled("KillAura") && killAuraCooldown == 0) {
-            boolean hitAnimals = ModuleManager.get("KillAura").isHitAnimals();
+            com.flex.client.module.Module ka = ModuleManager.get("KillAura");
+            boolean hitAnimals  = ka.isHitAnimals();
+            boolean hitPlayers  = ka.isHitPlayers();
+            int range           = ka.getKillAuraRange();
+            int delay           = ka.getKillAuraDelay();
 
-            Box box = player.getBoundingBox().expand(6);
+            Box box = player.getBoundingBox().expand(range);
             List<Entity> entities = player.getWorld().getOtherEntities(player, box);
 
-            for (Entity entity : entities) {
-                if (entity == null || entity.isRemoved()) continue;
-
-                boolean isTarget = entity instanceof Monster ||
-                    (hitAnimals && entity instanceof AnimalEntity);
-
-                if (isTarget) {
-                    // Paketi gonder
+            for (Entity e : entities) {
+                if (e == null || e.isRemoved()) continue;
+                boolean target = (e instanceof Monster)
+                    || (hitAnimals && e instanceof AnimalEntity)
+                    || (hitPlayers && e instanceof net.minecraft.client.network.AbstractClientPlayerEntity);
+                if (target) {
                     player.networkHandler.sendPacket(
-                        PlayerInteractEntityC2SPacket.attack(entity, player.isSneaking())
-                    );
+                        PlayerInteractEntityC2SPacket.attack(e, player.isSneaking()));
                     player.swingHand(Hand.MAIN_HAND);
-
-                    // Cooldown baslat - sunucu bypass ve banlanmama icin
-                    killAuraCooldown = KILL_AURA_DELAY;
+                    killAuraCooldown = delay;
                     break;
                 }
             }
+        }
+
+        // ── AUTO EAT ─────────────────────────────────────────────
+        if (autoEatCooldown > 0) autoEatCooldown--;
+
+        if (ModuleManager.isEnabled("AutoEat") && autoEatCooldown == 0) {
+            if (player.getHungerManager().getFoodLevel() < 18) {
+                net.minecraft.item.ItemStack held = player.getMainHandStack();
+                if (held.getItem().isFood()) {
+                    player.networkHandler.sendPacket(
+                        new net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket(
+                            net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket.Action.RELEASE_USE_ITEM,
+                            net.minecraft.util.math.BlockPos.ORIGIN,
+                            net.minecraft.util.math.Direction.DOWN, 0));
+                    autoEatCooldown = 20;
+                }
+            }
+        }
+
+        // ── FULLBRIGHT ───────────────────────────────────────────
+        if (ModuleManager.isEnabled("Fullbright")) {
+            try {
+                net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+                if (mc.options != null) {
+                    mc.options.getGamma().setValue(16.0);
+                }
+            } catch (Exception ignored) {}
         }
     }
 }
