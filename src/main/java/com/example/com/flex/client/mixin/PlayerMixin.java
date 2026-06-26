@@ -9,26 +9,33 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.AnimalEntity;
+import net.minecraft.item.Items;
+import net.minecraft.item.ItemStack;
 import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Mixin(ClientPlayerEntity.class)
-public class PlayerMixin {
+public abstract class PlayerMixin {
+
+    // stepHeight Entity'de protected — Shadow ile eriş
+    @Shadow protected float stepHeight;
 
     private int killAuraCooldown = 0;
     private int autoEatCooldown  = 0;
-    private int nukerCooldown    = 0;
     private boolean wasOnGround  = false;
+    private boolean longJumpReady = false;
 
     @Inject(at = @At("HEAD"), method = "tick()V")
     private void onTick(CallbackInfo ci) {
@@ -70,6 +77,13 @@ public class PlayerMixin {
             player.setSneaking(true);
         }
 
+        // ── STEP (Shadow ile stepHeight erişimi) ──────────────────
+        if (ModuleManager.isEnabled("Step")) {
+            this.stepHeight = ModuleManager.get("Step").getFloatSetting("height", 2.5f);
+        } else {
+            this.stepHeight = 0.6f;
+        }
+
         // ── BUNNY HOP ────────────────────────────────────────────
         if (ModuleManager.isEnabled("BunnyHop")) {
             if (player.isOnGround()) {
@@ -81,27 +95,33 @@ public class PlayerMixin {
 
         // ── LONG JUMP ────────────────────────────────────────────
         if (ModuleManager.isEnabled("LongJump")) {
-            if (!wasOnGround && player.isOnGround()) {
-                // Landing — apply forward burst on next jump is handled in onJump
+            // Yerde iken sonraki zıplamaya hazırlan
+            if (player.isOnGround()) {
+                longJumpReady = true;
             }
-            if (!player.isOnGround()) {
+            // Havalanır havalanmaz ileri fırla
+            if (longJumpReady && !player.isOnGround() && wasOnGround) {
                 float boost = ModuleManager.get("LongJump").getFloatSetting("boost", 0.8f);
+                double yaw  = Math.toRadians(player.getYaw());
+                player.addVelocity(-Math.sin(yaw) * boost, 0, Math.cos(yaw) * boost);
+                longJumpReady = false;
+            }
+            // Havada iken ekstra iterek hız koru
+            if (!player.isOnGround() && !wasOnGround) {
                 double yaw = Math.toRadians(player.getYaw());
-                Vec3d vel = player.getVelocity();
-                if (Math.abs(vel.x) + Math.abs(vel.z) < boost) {
-                    player.addVelocity(-Math.sin(yaw) * 0.06, 0, Math.cos(yaw) * 0.06);
+                Vec3d vel  = player.getVelocity();
+                if (Math.abs(vel.x) + Math.abs(vel.z) < 1.5) {
+                    player.addVelocity(-Math.sin(yaw) * 0.04, 0, Math.cos(yaw) * 0.04);
                 }
             }
         }
         wasOnGround = player.isOnGround();
 
-        // ── VELOCITY (knockback reducer) ──────────────────────────
+        // ── VELOCITY (knockback azaltıcı) ────────────────────────
         if (ModuleManager.isEnabled("Velocity")) {
-            Module v = ModuleManager.get("Velocity");
-            float hFactor = v.getFloatSetting("horizontal", 0.15f);
-            Vec3d vel = player.getVelocity();
-            double horiz = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-            // Only kick in when there's sudden horizontal spike (knockback)
+            float hFactor = ModuleManager.get("Velocity").getFloatSetting("horizontal", 0.15f);
+            Vec3d vel     = player.getVelocity();
+            double horiz  = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
             if (horiz > 0.28 && !ModuleManager.isEnabled("Fly") && !ModuleManager.isEnabled("Speed")) {
                 player.setVelocity(vel.x * hFactor, vel.y, vel.z * hFactor);
             }
@@ -109,7 +129,7 @@ public class PlayerMixin {
 
         // ── ANTI KNOCKBACK ───────────────────────────────────────
         if (ModuleManager.isEnabled("AntiKnockback")) {
-            Vec3d vel = player.getVelocity();
+            Vec3d vel    = player.getVelocity();
             double horiz = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
             if (horiz > 0.28 && !ModuleManager.isEnabled("Fly") && !ModuleManager.isEnabled("Speed")) {
                 player.setVelocity(0, vel.y, 0);
@@ -125,44 +145,35 @@ public class PlayerMixin {
 
         // ── AIM ASSIST ───────────────────────────────────────────
         if (ModuleManager.isEnabled("AimAssist")) {
-            Module aa = ModuleManager.get("AimAssist");
-            int range  = aa.getIntSetting("range", 5);
+            Module aa   = ModuleManager.get("AimAssist");
+            int range   = aa.getIntSetting("range", 5);
             float speed = aa.getFloatSetting("speed", 5.0f);
-            boolean aimPlayers = aa.getSetting("players");
-            boolean aimMobs    = aa.getSetting("mobs");
 
-            Entity nearest = null;
+            Entity nearest    = null;
             double nearestDist = Double.MAX_VALUE;
             Box box = player.getBoundingBox().expand(range);
+
             for (Entity e : player.getWorld().getOtherEntities(player, box)) {
                 if (!(e instanceof LivingEntity)) continue;
                 if (((LivingEntity) e).isDead()) continue;
                 boolean isPlayer = e instanceof AbstractClientPlayerEntity;
                 boolean isMob    = e instanceof Monster;
-                if ((aimPlayers && isPlayer) || (aimMobs && isMob)) {
-                    double d = player.squaredDistanceTo(e);
-                    if (d < nearestDist) { nearestDist = d; nearest = e; }
-                }
+                if (!isPlayer && !isMob) continue;
+                double d = player.squaredDistanceTo(e);
+                if (d < nearestDist) { nearestDist = d; nearest = e; }
             }
 
             if (nearest != null) {
-                double dx = nearest.getX() - player.getX();
-                double dy = nearest.getEyeY() - player.getEyeY();
-                double dz = nearest.getZ() - player.getZ();
-                double horiz = Math.sqrt(dx * dx + dz * dz);
-                float targetYaw   = (float)(Math.toDegrees(Math.atan2(dz, dx)) - 90);
-                float targetPitch = (float)(-Math.toDegrees(Math.atan2(dy, horiz)));
-
-                float curYaw   = player.getYaw();
-                float curPitch = player.getPitch();
-                float diffYaw  = wrapAngle(targetYaw - curYaw);
-                float diffPitch = targetPitch - curPitch;
-
-                float stepYaw   = Math.max(-speed, Math.min(speed, diffYaw));
-                float stepPitch = Math.max(-speed, Math.min(speed, diffPitch));
-
-                player.setYaw(curYaw + stepYaw);
-                player.setPitch(curPitch + stepPitch);
+                double dx   = nearest.getX() - player.getX();
+                double dy   = nearest.getEyeY() - player.getEyeY();
+                double dz   = nearest.getZ() - player.getZ();
+                double horz = Math.sqrt(dx * dx + dz * dz);
+                float tYaw  = (float)(Math.toDegrees(Math.atan2(dz, dx)) - 90);
+                float tPitch = (float)(-Math.toDegrees(Math.atan2(dy, horz)));
+                float dYaw  = wrapAngle(tYaw - player.getYaw());
+                float dPitch = tPitch - player.getPitch();
+                player.setYaw(player.getYaw() + Math.max(-speed, Math.min(speed, dYaw)));
+                player.setPitch(player.getPitch() + Math.max(-speed, Math.min(speed, dPitch)));
             }
         }
 
@@ -170,44 +181,40 @@ public class PlayerMixin {
         if (killAuraCooldown > 0) killAuraCooldown--;
 
         if (ModuleManager.isEnabled("KillAura") && killAuraCooldown == 0) {
-            Module ka = ModuleManager.get("KillAura");
-            boolean hitAnimals  = ka.isHitAnimals();
-            boolean hitPlayers  = ka.isHitPlayers();
-            boolean hitMonsters = ka.isHitMonsters();
-            int range           = ka.getKillAuraRange();
-            int delay           = ka.getKillAuraDelay();
+            Module ka       = ModuleManager.get("KillAura");
+            boolean hitAni  = ka.isHitAnimals();
+            boolean hitPlr  = ka.isHitPlayers();
+            boolean hitMob  = ka.isHitMonsters();
+            int range       = ka.getKillAuraRange();
+            int delay       = ka.getKillAuraDelay();
 
             Box box = player.getBoundingBox().expand(range);
-            List<Entity> candidates = player.getWorld().getOtherEntities(player, box)
+            List<Entity> targets = player.getWorld().getOtherEntities(player, box)
                 .stream()
                 .filter(e -> {
-                    if (e == null || !(e instanceof LivingEntity)) return false;
+                    if (!(e instanceof LivingEntity)) return false;
                     if (((LivingEntity) e).isDead()) return false;
-                    boolean isMonster = e instanceof Monster;
-                    boolean isAnimal  = e instanceof AnimalEntity;
-                    boolean isPlayer  = e instanceof AbstractClientPlayerEntity;
-                    return (hitMonsters && isMonster) || (hitAnimals && isAnimal) || (hitPlayers && isPlayer);
+                    return (hitMob && e instanceof Monster)
+                        || (hitAni && e instanceof AnimalEntity)
+                        || (hitPlr && e instanceof AbstractClientPlayerEntity);
                 })
                 .sorted(Comparator.comparingDouble(e -> player.squaredDistanceTo(e)))
                 .collect(Collectors.toList());
 
-            if (!candidates.isEmpty()) {
-                Entity target = candidates.get(0);
-
-                // Rotate toward target if enabled
+            if (!targets.isEmpty()) {
+                Entity target = targets.get(0);
                 if (ka.isRotate()) {
-                    double dx = target.getX() - player.getX();
-                    double dy = target.getEyeY() - player.getEyeY();
-                    double dz = target.getZ() - player.getZ();
-                    double horiz = Math.sqrt(dx * dx + dz * dz);
+                    double dx   = target.getX() - player.getX();
+                    double dy   = target.getEyeY() - player.getEyeY();
+                    double dz   = target.getZ() - player.getZ();
+                    double horz = Math.sqrt(dx * dx + dz * dz);
                     float yaw   = (float)(Math.toDegrees(Math.atan2(dz, dx)) - 90);
-                    float pitch = (float)(-Math.toDegrees(Math.atan2(dy, horiz)));
+                    float pitch = (float)(-Math.toDegrees(Math.atan2(dy, horz)));
                     player.setYaw(yaw);
                     player.setPitch(pitch);
                     player.networkHandler.sendPacket(
                         new PlayerMoveC2SPacket.LookAndOnGround(yaw, pitch, player.isOnGround()));
                 }
-
                 player.networkHandler.sendPacket(
                     PlayerInteractEntityC2SPacket.attack(target, player.isSneaking()));
                 player.swingHand(Hand.MAIN_HAND);
@@ -220,7 +227,7 @@ public class PlayerMixin {
         if (ModuleManager.isEnabled("AutoEat") && autoEatCooldown == 0) {
             int threshold = ModuleManager.get("AutoEat").getIntSetting("threshold", 16);
             if (player.getHungerManager().getFoodLevel() < threshold) {
-                net.minecraft.item.ItemStack held = player.getMainHandStack();
+                ItemStack held = player.getMainHandStack();
                 if (held.getItem().isFood()) {
                     player.networkHandler.sendPacket(
                         new net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket(
@@ -244,11 +251,12 @@ public class PlayerMixin {
         if (ModuleManager.isEnabled("AutoTotem")) {
             int threshold = ModuleManager.get("AutoTotem").getIntSetting("threshold", 8);
             if (player.getHealth() <= threshold) {
-                net.minecraft.item.ItemStack offhand = player.getInventory().offHand.get(0);
-                if (!(offhand.getItem() instanceof net.minecraft.item.TotemOfUndyingItem)) {
+                ItemStack offhand = player.getInventory().offHand.get(0);
+                // Items.TOTEM_OF_UNDYING kullan (class yerine)
+                if (offhand.getItem() != Items.TOTEM_OF_UNDYING) {
                     for (int i = 0; i < player.getInventory().main.size(); i++) {
-                        net.minecraft.item.ItemStack s = player.getInventory().main.get(i);
-                        if (s.getItem() instanceof net.minecraft.item.TotemOfUndyingItem) {
+                        ItemStack s = player.getInventory().main.get(i);
+                        if (s.getItem() == Items.TOTEM_OF_UNDYING) {
                             player.getInventory().offHand.set(0, s.copy());
                             player.getInventory().main.set(i, offhand.copy());
                             break;
@@ -265,30 +273,11 @@ public class PlayerMixin {
                 if (mc.options != null) mc.options.getGamma().setValue(16.0);
             } catch (Exception ignored) {}
         }
-
-        // ── STEP (yuksek blok atlama) ─────────────────────────────
-        if (ModuleManager.isEnabled("Step")) {
-            float h = ModuleManager.get("Step").getFloatSetting("height", 2.5f);
-            player.stepHeight = h;
-        } else {
-            player.stepHeight = 0.6f;
-        }
     }
 
-    // Inject into jump for LongJump boost
-    @Inject(at = @At("TAIL"), method = "jump()V")
-    private void onJump(CallbackInfo ci) {
-        ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
-        if (ModuleManager.isEnabled("LongJump")) {
-            float boost = ModuleManager.get("LongJump").getFloatSetting("boost", 0.8f);
-            double yaw = Math.toRadians(player.getYaw());
-            player.addVelocity(-Math.sin(yaw) * boost, 0, Math.cos(yaw) * boost);
-        }
-    }
-
-    private static float wrapAngle(float angle) {
-        while (angle > 180)  angle -= 360;
-        while (angle < -180) angle += 360;
-        return angle;
+    private static float wrapAngle(float a) {
+        while (a >  180) a -= 360;
+        while (a < -180) a += 360;
+        return a;
     }
 }
