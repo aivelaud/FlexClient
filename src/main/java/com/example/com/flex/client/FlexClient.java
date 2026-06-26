@@ -12,12 +12,9 @@ public class FlexClient implements ClientModInitializer {
     public static final String MOD_ID = "flexclient";
     public static FlexClient INSTANCE;
 
-    // GLFW_KEY_RIGHT_SHIFT (344) yerine INSERT (260) kullaniyoruz.
-    // PojavLauncher'da sanal klavyeden INSERT gonderilebilir.
-    // Istersen bunu GLFW.GLFW_KEY_F1 (290) gibi baska bir tusa da degistirebilirsin.
+    // G tusu (71) - PojavLauncher mobil klavyesinde gorunuyor
     private static KeyBinding guiKey;
 
-    // GUI'nin kac tick'te bir acilip kapanacagini kontrol etmek icin sayac
     private static int tickCooldown = 0;
     private static final int COOLDOWN_TICKS = 10;
 
@@ -26,24 +23,20 @@ public class FlexClient implements ClientModInitializer {
         INSTANCE = this;
         ModuleManager.init();
 
-        // INSERT tusu (260) - PojavLauncher sanal klavyesinden erisebilirsin
         guiKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
             "FlexClient GUI",
             InputUtil.Type.KEYSYM,
-            260, // GLFW_KEY_INSERT - RSHIFT yerine
+            71, // GLFW_KEY_G
             "FlexClient"
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            // Cooldown kontrolu - cift acilmayi engeller
             if (tickCooldown > 0) {
                 tickCooldown--;
                 return;
             }
 
-            // Tus basildi mi?
             if (guiKey.wasPressed()) {
-                // Eger zaten ClickGui aciksa kapat, degilse ac
                 if (client.currentScreen instanceof ClickGui) {
                     client.setScreen(null);
                 } else {
@@ -53,7 +46,6 @@ public class FlexClient implements ClientModInitializer {
             }
         });
 
-        System.out.println("[FlexClient] Yuklendi! INSERT tusu ile GUI ac.");
-        System.out.println("[FlexClient] PojavLauncher: Sanal klavyeden INSERT'e bas.");
+        System.out.println("[FlexClient] Yuklendi! Klavyeden G tusuna bas.");
     }
 }
