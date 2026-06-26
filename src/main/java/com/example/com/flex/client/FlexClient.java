@@ -1,6 +1,7 @@
 package com.flex.client;
 
 import com.flex.client.gui.ClickGui;
+import com.flex.client.module.Module;
 import com.flex.client.module.ModuleManager;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -14,13 +15,7 @@ public class FlexClient implements ClientModInitializer {
     public static final String MOD_ID = "flexclient";
     public static FlexClient INSTANCE;
 
-    // HUD buton konumu (sol ust kose)
-    private static final int BTN_X = 4;
-    private static final int BTN_Y = 4;
-    private static final int BTN_W = 60;
-    private static final int BTN_H = 14;
-
-    // Tiklanma takibi (her tick degil, sadece basin aninda)
+    private static final int BTN_X = 4, BTN_Y = 4, BTN_W = 72, BTN_H = 14;
     private static boolean wasMouseDown = false;
 
     @Override
@@ -28,64 +23,58 @@ public class FlexClient implements ClientModInitializer {
         INSTANCE = this;
         ModuleManager.init();
 
-        // Dunya yuklendikce GUI'yi otomatik ac
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             client.execute(() -> client.setScreen(new ClickGui()));
         });
 
-        // HUD uzerine "FC" butonu ciz
+        // HUD
         HudRenderCallback.EVENT.register((DrawContext ctx, float tickDelta) -> {
             MinecraftClient client = MinecraftClient.getInstance();
+            if (client.currentScreen != null || client.world == null) return;
 
-            // Sadece oyun icindeyken goster (baska ekran acikken gizle)
-            if (client.currentScreen != null) return;
-            if (client.world == null) return;
-
-            // Buton arkaplan
-            ctx.fill(BTN_X, BTN_Y, BTN_X + BTN_W, BTN_Y + BTN_H, 0xCC111122);
-            // Sol serit
+            // FC Butonu
+            ctx.fill(BTN_X, BTN_Y, BTN_X + BTN_W, BTN_Y + BTN_H, 0xCC050510);
             ctx.fill(BTN_X, BTN_Y, BTN_X + 2, BTN_Y + BTN_H, 0xFF00FFAA);
-            // Yazi
-            ctx.drawTextWithShadow(
-                client.textRenderer,
-                "§aFlex§fClient",
-                BTN_X + 5, BTN_Y + 3,
-                0xFFFFFFFF
-            );
+            ctx.drawTextWithShadow(client.textRenderer,
+                "\u00a7aFlex\u00a7fClient \u00a772.0",
+                BTN_X + 5, BTN_Y + 3, 0xFFFFFFFF);
+
+            // Aktif modul listesi (sag ust kose)
+            int activeX = client.getWindow().getScaledWidth() - 4;
+            int activeY = 4;
+            for (Module m : ModuleManager.modules) {
+                if (!m.isEnabled()) continue;
+                int tw = client.textRenderer.getWidth(m.getName());
+                ctx.fill(activeX - tw - 6, activeY - 1,
+                         activeX + 2,       activeY + 9, 0xAA000011);
+                ctx.fill(activeX,           activeY - 1,
+                         activeX + 2,       activeY + 9, 0xFF00FFAA);
+                ctx.drawTextWithShadow(client.textRenderer,
+                    m.getName(), activeX - tw - 3, activeY, 0xFFFFFFFF);
+                activeY += 11;
+            }
         });
 
         // Tiklama algilama
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.world == null) return;
-            if (client.currentScreen != null) {
-                wasMouseDown = false;
-                return;
-            }
+            if (client.currentScreen != null) { wasMouseDown = false; return; }
 
-            long window = client.getWindow().getHandle();
-            boolean isMouseDown = GLFW.glfwGetMouseButton(window,
-                GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            long win = client.getWindow().getHandle();
+            boolean down = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
-            // Sadece basman aninda tetikle (basili tutunca tekrar tekrar acmasin)
-            if (isMouseDown && !wasMouseDown) {
+            if (down && !wasMouseDown) {
                 double[] mx = new double[1], my = new double[1];
-                GLFW.glfwGetCursorPos(window, mx, my);
-
-                // Ekran olcegi (Retina ekranlar icin)
+                GLFW.glfwGetCursorPos(win, mx, my);
                 double scale = client.getWindow().getScaleFactor();
-                double scaledX = mx[0] / scale;
-                double scaledY = my[0] / scale;
-
-                // Buton alani icinde mi?
-                if (scaledX >= BTN_X && scaledX <= BTN_X + BTN_W
-                        && scaledY >= BTN_Y && scaledY <= BTN_Y + BTN_H) {
+                double sx = mx[0] / scale, sy = my[0] / scale;
+                if (sx >= BTN_X && sx <= BTN_X + BTN_W && sy >= BTN_Y && sy <= BTN_Y + BTN_H) {
                     client.setScreen(new ClickGui());
                 }
             }
-
-            wasMouseDown = isMouseDown;
+            wasMouseDown = down;
         });
 
-        System.out.println("[FlexClient] Yuklendi! Sol ustteki FC butonuna dokun.");
+        System.out.println("[FlexClient 2.0] Yuklendi!");
     }
 }
