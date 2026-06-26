@@ -17,7 +17,6 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -29,8 +28,8 @@ import java.util.stream.Collectors;
 @Mixin(ClientPlayerEntity.class)
 public abstract class PlayerMixin {
 
-    // stepHeight Entity'de protected — Shadow ile eriş
-    @Shadow protected float stepHeight;
+    // stepHeight Entity'de (class_1542) declared — ClientPlayerEntity'de değil.
+    // Bu yüzden @Shadow burada çalışmaz; StepHeightAccessor kullanıyoruz.
 
     private int killAuraCooldown = 0;
     private int autoEatCooldown  = 0;
@@ -77,11 +76,13 @@ public abstract class PlayerMixin {
             player.setSneaking(true);
         }
 
-        // ── STEP (Shadow ile stepHeight erişimi) ──────────────────
+        // ── STEP (StepHeightAccessor ile Entity.stepHeight erişimi) ──
+        // field_6013 Entity sınıfında declared — accessor mixin üzerinden set ediyoruz.
+        StepHeightAccessor accessor = (StepHeightAccessor)(Object)this;
         if (ModuleManager.isEnabled("Step")) {
-            this.stepHeight = ModuleManager.get("Step").getFloatSetting("height", 2.5f);
+            accessor.setStepHeight(ModuleManager.get("Step").getFloatSetting("height", 2.5f));
         } else {
-            this.stepHeight = 0.6f;
+            accessor.setStepHeight(0.6f);
         }
 
         // ── BUNNY HOP ────────────────────────────────────────────
@@ -95,18 +96,15 @@ public abstract class PlayerMixin {
 
         // ── LONG JUMP ────────────────────────────────────────────
         if (ModuleManager.isEnabled("LongJump")) {
-            // Yerde iken sonraki zıplamaya hazırlan
             if (player.isOnGround()) {
                 longJumpReady = true;
             }
-            // Havalanır havalanmaz ileri fırla
             if (longJumpReady && !player.isOnGround() && wasOnGround) {
                 float boost = ModuleManager.get("LongJump").getFloatSetting("boost", 0.8f);
                 double yaw  = Math.toRadians(player.getYaw());
                 player.addVelocity(-Math.sin(yaw) * boost, 0, Math.cos(yaw) * boost);
                 longJumpReady = false;
             }
-            // Havada iken ekstra iterek hız koru
             if (!player.isOnGround() && !wasOnGround) {
                 double yaw = Math.toRadians(player.getYaw());
                 Vec3d vel  = player.getVelocity();
@@ -149,7 +147,7 @@ public abstract class PlayerMixin {
             int range   = aa.getIntSetting("range", 5);
             float speed = aa.getFloatSetting("speed", 5.0f);
 
-            Entity nearest    = null;
+            Entity nearest     = null;
             double nearestDist = Double.MAX_VALUE;
             Box box = player.getBoundingBox().expand(range);
 
@@ -252,7 +250,6 @@ public abstract class PlayerMixin {
             int threshold = ModuleManager.get("AutoTotem").getIntSetting("threshold", 8);
             if (player.getHealth() <= threshold) {
                 ItemStack offhand = player.getInventory().offHand.get(0);
-                // Items.TOTEM_OF_UNDYING kullan (class yerine)
                 if (offhand.getItem() != Items.TOTEM_OF_UNDYING) {
                     for (int i = 0; i < player.getInventory().main.size(); i++) {
                         ItemStack s = player.getInventory().main.get(i);
