@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "id": "flexclient",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "name": "FlexClient",
-  "description": "FlexClient - Custom Hacked Client",
+  "description": "FlexClient 3.0 - Professional Hacked Client",
   "authors": ["Ugurcan"],
   "environment": "client",
   "entrypoints": {
