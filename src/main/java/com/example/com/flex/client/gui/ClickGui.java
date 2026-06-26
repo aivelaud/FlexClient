@@ -11,19 +11,19 @@ import java.util.List;
 public class ClickGui extends Screen {
 
     private static final List<String> CATEGORIES = Arrays.asList("Combat", "Movement", "Render", "Player");
-    private static final int COL_W   = 150;
-    private static final int COL_H   = 26;
-    private static final int SUB_H   = 22;
-    private static final int COL_X0  = 8;
-    private static final int COL_Y0  = 8;
-    private static final int COL_GAP = 6;
+    private static final int COL_W   = 130;
+    private static final int MOD_H   = 22;
+    private static final int CAT_H   = 24;
+    private static final int SUB_H   = 18;
+    private static final int COL_X0  = 6;
+    private static final int COL_Y0  = 14;
+    private static final int COL_GAP = 5;
 
-    // Kategori renkleri
     private static final int[] CAT_COLORS = {
-        0xFFFF4444, // Combat  - kirmizi
+        0xFFFF4455, // Combat   - kirmizi
         0xFF44AAFF, // Movement - mavi
-        0xFF44FF88, // Render  - yesil
-        0xFFFFAA00  // Player  - turuncu
+        0xFF44FF88, // Render   - yesil
+        0xFFFFAA00  // Player   - turuncu
     };
 
     private double lastTX = -1, lastTY = -1;
@@ -36,128 +36,135 @@ public class ClickGui extends Screen {
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
         // Koyu degrade arka plan
-        ctx.fillGradient(0, 0, this.width, this.height, 0xDD000011, 0xEE000022);
+        ctx.fillGradient(0, 0, this.width, this.height, 0xEE000011, 0xFF000022);
 
         // Dokunma parlama efekti
         if (feedbackTicks > 0) {
             feedbackTicks--;
-            int a = Math.min(feedbackTicks * 15, 160);
-            ctx.fill((int)lastTX - 18, (int)lastTY - 18,
-                     (int)lastTX + 18, (int)lastTY + 18,
-                     (a << 24) | 0x0000FFAA);
+            int a = Math.min(feedbackTicks * 12, 140);
+            ctx.fill((int)lastTX - 20, (int)lastTY - 20,
+                     (int)lastTX + 20, (int)lastTY + 20,
+                     (a << 24) | 0x0000FFBB);
         }
 
         int cx = COL_X0;
         for (int ci = 0; ci < CATEGORIES.size(); ci++) {
             String cat = CATEGORIES.get(ci);
             int catColor = CAT_COLORS[ci];
+            List<Module> catMods = ModuleManager.getByCategory(cat);
 
-            // Kategori baslik
-            ctx.fill(cx, COL_Y0, cx + COL_W, COL_Y0 + COL_H, 0xFF0D0D1F);
-            ctx.fill(cx, COL_Y0, cx + 3, COL_Y0 + COL_H, catColor);
-            ctx.drawTextWithShadow(textRenderer, cat, cx + 8, COL_Y0 + (COL_H/2) - 4, catColor);
+            // Kategori baslik kutusu
+            ctx.fill(cx, COL_Y0, cx + COL_W, COL_Y0 + CAT_H, 0xFF0E0E20);
+            ctx.fill(cx, COL_Y0, cx + 3, COL_Y0 + CAT_H, catColor);
+            ctx.fill(cx, COL_Y0 + CAT_H - 1, cx + COL_W, COL_Y0 + CAT_H, catColor & 0x55FFFFFF);
+            ctx.drawTextWithShadow(textRenderer, cat, cx + 7, COL_Y0 + (CAT_H / 2) - 4, catColor);
 
-            // Modul sayisi badge
-            int count = ModuleManager.getByCategory(cat).size();
-            String badge = String.valueOf(count);
+            // Aktif / toplam badge
+            long activeCount = catMods.stream().filter(Module::isEnabled).count();
+            String badge = activeCount + "/" + catMods.size();
             int bw = textRenderer.getWidth(badge) + 6;
-            ctx.fill(cx + COL_W - bw - 2, COL_Y0 + 5, cx + COL_W - 2, COL_Y0 + COL_H - 5, 0xFF1A1A3A);
-            ctx.drawTextWithShadow(textRenderer, badge, cx + COL_W - bw + 1, COL_Y0 + (COL_H/2) - 4, catColor);
+            ctx.fill(cx + COL_W - bw - 2, COL_Y0 + 4, cx + COL_W - 2, COL_Y0 + CAT_H - 4, 0xFF161630);
+            ctx.drawTextWithShadow(textRenderer, badge, cx + COL_W - bw + 1, COL_Y0 + (CAT_H / 2) - 4, catColor);
 
-            int cy = COL_Y0 + COL_H + 2;
-            for (Module m : ModuleManager.modules) {
-                if (!m.getCategory().equals(cat)) continue;
-
-                boolean hov = mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + COL_H;
+            int cy = COL_Y0 + CAT_H + 2;
+            for (Module m : catMods) {
+                boolean hov = mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + MOD_H;
                 boolean on  = m.isEnabled();
 
-                int bg = on  ? 0xFF111133
-                       : hov ? 0xFF1A1A2E
-                       :       0xFF0A0A1A;
-
-                ctx.fill(cx, cy, cx + COL_W, cy + COL_H, bg);
+                // Arkaplan
+                int bg = on  ? 0xFF121230
+                       : hov ? 0xFF1C1C38
+                       :       0xFF0B0B1E;
+                ctx.fill(cx, cy, cx + COL_W, cy + MOD_H, bg);
 
                 // Sol serit
-                int stripColor = on ? catColor : 0xFF333344;
-                ctx.fill(cx, cy, cx + 3, cy + COL_H, stripColor);
+                ctx.fill(cx, cy, cx + 3, cy + MOD_H, on ? catColor : 0xFF2A2A44);
 
-                // Alt cizgi (ince ayirici)
-                ctx.fill(cx + 3, cy + COL_H - 1, cx + COL_W, cy + COL_H, 0xFF1A1A2E);
+                // Alt ince cizgi
+                ctx.fill(cx + 3, cy + MOD_H - 1, cx + COL_W, cy + MOD_H, 0xFF181830);
 
-                int tc = on ? 0xFFFFFFFF : 0xFF888899;
-                ctx.drawTextWithShadow(textRenderer, m.getName(), cx + 8, cy + (COL_H/2) - 4, tc);
+                // Modul adi
+                int tc = on ? 0xFFFFFFFF : 0xFF7777AA;
+                ctx.drawTextWithShadow(textRenderer, m.getName(), cx + 8, cy + (MOD_H / 2) - 4, tc);
 
+                // ON gostergesi
                 if (on) {
-                    ctx.drawTextWithShadow(textRenderer, "§a■", cx + COL_W - 12, cy + (COL_H/2) - 4, 0xFF00FFAA);
+                    ctx.drawTextWithShadow(textRenderer, "\u00a7a\u25a0", cx + COL_W - 11, cy + (MOD_H / 2) - 4, 0xFF00FFAA);
                 }
 
                 // KillAura alt ayarlari
                 if (m.getName().equals("KillAura") && on) {
-                    cy += COL_H + 1;
-                    renderSubToggle(ctx, mx, my, cx, cy, "Hayvanlara vur", m.isHitAnimals());
+                    cy += MOD_H;
+                    renderSubToggle(ctx, mx, my, cx, cy, "Moblara vur",     m.isHitMonsters());
                     cy += SUB_H;
-                    renderSubToggle(ctx, mx, my, cx, cy, "Oyunculara vur", m.isHitPlayers());
-                    cy += SUB_H + 1;
+                    renderSubToggle(ctx, mx, my, cx, cy, "Oyunculara vur",  m.isHitPlayers());
+                    cy += SUB_H;
+                    renderSubToggle(ctx, mx, my, cx, cy, "Hayvanlar",        m.isHitAnimals());
+                    cy += SUB_H;
+                    renderSubToggle(ctx, mx, my, cx, cy, "Otomatik don",     m.isRotate());
+                    cy += SUB_H + 2;
                     continue;
                 }
 
-                cy += COL_H + 1;
+                cy += MOD_H + 1;
             }
+
             cx += COL_W + COL_GAP;
         }
 
-        // Alt bilgi cubu
-        String hint = "§7[FC] §fTikla: Ac/Kapat  |  ESC: Kapat  |  §aFlexClient v2.0";
-        ctx.fill(0, this.height - 14, this.width, this.height, 0xDD000011);
-        ctx.drawTextWithShadow(textRenderer, hint, 4, this.height - 10, 0xFFAAAAAA);
+        // Ust watermark cubugu
+        long enabled = ModuleManager.modules.stream().filter(Module::isEnabled).count();
+        ctx.fill(0, 0, this.width, 12, 0xBB000014);
+        ctx.drawTextWithShadow(textRenderer,
+            "\u00a7a\u00a7lFlex\u00a7f\u00a7lClient \u00a772.0  \u00a77|\u00a7f  " + enabled + "/" + ModuleManager.modules.size() + " mod aktif",
+            4, 2, 0xFFFFFFFF);
 
-        // Ust watermark
-        ctx.fill(0, 0, this.width, 12, 0xAA000011);
-        ctx.drawTextWithShadow(textRenderer, "§a§lFlex§f§lClient §72.0 §f| §7" + ModuleManager.modules.stream().filter(Module::isEnabled).count() + " aktif modul", 4, 2, 0xFFFFFFFF);
+        // Alt bilgi cubugu
+        ctx.fill(0, this.height - 12, this.width, this.height, 0xBB000014);
+        ctx.drawTextWithShadow(textRenderer,
+            "\u00a77Tikla: Ac/Kapat   ESC: Kapat   \u00a7aFlexClient v2.0 \u00a77by Flex",
+            4, this.height - 9, 0xFF888899);
 
         super.render(ctx, mx, my, delta);
     }
 
     private void renderSubToggle(DrawContext ctx, int mx, int my, int cx, int cy, String label, boolean val) {
-        boolean hov = mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H;
-        ctx.fill(cx + 10, cy, cx + COL_W, cy + SUB_H, hov ? 0xFF1E1E3E : 0xFF101024);
-        String check = val ? "§a[✔] §f" : "§7[✘] §8";
-        ctx.drawTextWithShadow(textRenderer, check + label, cx + 16, cy + (SUB_H/2) - 4, 0xFFAAAAAA);
+        boolean hov = mx >= cx + 8 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H;
+        ctx.fill(cx + 8, cy, cx + COL_W, cy + SUB_H, hov ? 0xFF1E1E40 : 0xFF0E0E28);
+        String check = val ? "\u00a7a[\u2714]\u00a7f " : "\u00a77[\u2718]\u00a78";
+        ctx.drawTextWithShadow(textRenderer, check + label, cx + 14, cy + (SUB_H / 2) - 4, 0xFFAAAAAA);
     }
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
         if (btn != 0) return super.mouseClicked(mx, my, btn);
-
         lastTX = mx; lastTY = my; feedbackTicks = 10;
 
         int cx = COL_X0;
         for (String cat : CATEGORIES) {
-            int cy = COL_Y0 + COL_H + 2;
-            for (Module m : ModuleManager.modules) {
-                if (!m.getCategory().equals(cat)) continue;
+            List<Module> catMods = ModuleManager.getByCategory(cat);
+            int cy = COL_Y0 + CAT_H + 2;
 
-                if (mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + COL_H) {
+            for (Module m : catMods) {
+                if (mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + MOD_H) {
                     m.toggle();
                     return true;
                 }
 
                 if (m.getName().equals("KillAura") && m.isEnabled()) {
-                    cy += COL_H + 1;
-                    if (mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) {
-                        m.setSetting("hitAnimals", !m.isHitAnimals());
-                        return true;
-                    }
+                    cy += MOD_H;
+                    if (mx >= cx + 8 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) { m.setSetting("hitMonsters", !m.isHitMonsters()); return true; }
                     cy += SUB_H;
-                    if (mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) {
-                        m.setSetting("hitPlayers", !m.isHitPlayers());
-                        return true;
-                    }
-                    cy += SUB_H + 1;
+                    if (mx >= cx + 8 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) { m.setSetting("hitPlayers",  !m.isHitPlayers());  return true; }
+                    cy += SUB_H;
+                    if (mx >= cx + 8 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) { m.setSetting("hitAnimals",  !m.isHitAnimals());  return true; }
+                    cy += SUB_H;
+                    if (mx >= cx + 8 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) { m.setSetting("rotate",      !m.isRotate());      return true; }
+                    cy += SUB_H + 2;
                     continue;
                 }
 
-                cy += COL_H + 1;
+                cy += MOD_H + 1;
             }
             cx += COL_W + COL_GAP;
         }
