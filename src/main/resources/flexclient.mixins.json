@@ -6,7 +6,8 @@
   "client": [
     "PlayerMixin",
     "BlockMixin",
-    "MixinBlockOpacity"
+    "MixinBlockOpacity",
+    "StepHeightAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
