@@ -7,10 +7,12 @@ import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
 import net.minecraft.util.Hand;
+import net.minecraft.util.math.Box;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import java.util.List;
 
 @Mixin(ClientPlayerEntity.class)
 public class PlayerMixin {
@@ -30,11 +32,12 @@ public class PlayerMixin {
 
         if (ModuleManager.isEnabled("KillAura")) {
             boolean hitAnimals = ModuleManager.get("KillAura").isHitAnimals();
-            for (Entity entity : player.getWorld().getEntities()) {
-                if (entity == player) continue;
+            Box box = player.getBoundingBox().expand(6);
+            List<Entity> entities = player.getWorld().getOtherEntities(player, box);
+            for (Entity entity : entities) {
                 boolean isTarget = entity instanceof Monster ||
                     (hitAnimals && entity instanceof AnimalEntity);
-                if (isTarget && player.distanceTo(entity) <= 6.0f && !entity.isRemoved()) {
+                if (isTarget && !entity.isRemoved()) {
                     player.networkHandler.sendPacket(
                         PlayerInteractEntityC2SPacket.attack(entity, player.isSneaking())
                     );
