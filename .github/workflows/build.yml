@@ -26,4 +26,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: FlexClient
-          path: build/libs/*-dev.jar
+          path: build/libs/*.jar
