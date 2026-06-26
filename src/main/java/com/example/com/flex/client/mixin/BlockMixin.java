@@ -61,11 +61,10 @@ public class BlockMixin {
             || b == Blocks.ENDER_CHEST
             || b == Blocks.BARREL
             || b == Blocks.SPAWNER              // Mob spawner
-            || b == Blocks.TRIAL_SPAWNER        // 1.21 Trial spawner
-            || b == Blocks.VAULT                // 1.21 Vault
             || b == Blocks.OBSIDIAN
             || b == Blocks.CRYING_OBSIDIAN
             || b == Blocks.BEDROCK;             // Bedrock seviyesi tespiti
+            // NOT: TRIAL_SPAWNER ve VAULT 1.21+ icin, bu proje 1.20.1
     }
 
     // Tum gosterilecek bloklar
@@ -106,3 +105,4 @@ public class BlockMixin {
         // Xray kapali ise hicbir seye dokunma, vanilla davranis devam eder
     }
 }
+
