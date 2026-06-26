@@ -9,19 +9,25 @@ import java.util.Arrays;
 import java.util.List;
 
 public class ClickGui extends Screen {
-    private static final List<String> CATEGORIES = Arrays.asList("Combat", "Movement", "Render");
 
-    // PojavLauncher icin buton boyutlari BUYUTULDU (parmakla tıklamak icin)
-    private static final int COL_W = 160;   // 120 -> 160
-    private static final int COL_H = 28;    // 20 -> 28 (daha kolay tiklanir)
-    private static final int SUB_H = 26;    // alt ayar satiri yuksekligi
-    private static final int COL_X_START = 10;
-    private static final int COL_Y_START = 10;
-    private static final int COL_GAP = 8;   // sutunlar arasi bosluk
+    private static final List<String> CATEGORIES = Arrays.asList("Combat", "Movement", "Render", "Player");
+    private static final int COL_W   = 150;
+    private static final int COL_H   = 26;
+    private static final int SUB_H   = 22;
+    private static final int COL_X0  = 8;
+    private static final int COL_Y0  = 8;
+    private static final int COL_GAP = 6;
 
-    // Dokunma icin son tiklanan alani tut (gorsel geri bildirim)
-    private double lastTouchX = -1, lastTouchY = -1;
-    private int touchFeedbackTicks = 0;
+    // Kategori renkleri
+    private static final int[] CAT_COLORS = {
+        0xFFFF4444, // Combat  - kirmizi
+        0xFF44AAFF, // Movement - mavi
+        0xFF44FF88, // Render  - yesil
+        0xFFFFAA00  // Player  - turuncu
+    };
+
+    private double lastTX = -1, lastTY = -1;
+    private int feedbackTicks = 0;
 
     public ClickGui() {
         super(Text.literal("FlexClient"));
@@ -29,61 +35,68 @@ public class ClickGui extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
-        // Arkaplan - biraz daha koyu ve net
-        ctx.fillGradient(0, 0, this.width, this.height, 0xCC000000, 0xDD000000);
+        // Koyu degrade arka plan
+        ctx.fillGradient(0, 0, this.width, this.height, 0xDD000011, 0xEE000022);
 
-        // Dokunma geri bildirimi - tiklanan yerde parlama efekti
-        if (touchFeedbackTicks > 0) {
-            touchFeedbackTicks--;
-            int alpha = (int)(touchFeedbackTicks * 12);
-            if (alpha > 180) alpha = 180;
-            ctx.fill((int)lastTouchX - 20, (int)lastTouchY - 20,
-                     (int)lastTouchX + 20, (int)lastTouchY + 20,
-                     (alpha << 24) | 0x00FFAA44);
+        // Dokunma parlama efekti
+        if (feedbackTicks > 0) {
+            feedbackTicks--;
+            int a = Math.min(feedbackTicks * 15, 160);
+            ctx.fill((int)lastTX - 18, (int)lastTY - 18,
+                     (int)lastTX + 18, (int)lastTY + 18,
+                     (a << 24) | 0x0000FFAA);
         }
 
-        int cx = COL_X_START;
-        for (String cat : CATEGORIES) {
-            // Kategori baslik kutusu
-            ctx.fill(cx, COL_Y_START, cx + COL_W, COL_Y_START + COL_H, 0xFF1a1a2e);
-            // Kategori sol serit
-            ctx.fill(cx, COL_Y_START, cx + 3, COL_Y_START + COL_H, 0xFFFF9900);
-            ctx.drawTextWithShadow(textRenderer, cat, cx + 8, COL_Y_START + (COL_H / 2) - 4, 0xFFFF9900);
+        int cx = COL_X0;
+        for (int ci = 0; ci < CATEGORIES.size(); ci++) {
+            String cat = CATEGORIES.get(ci);
+            int catColor = CAT_COLORS[ci];
 
-            int cy = COL_Y_START + COL_H + 2;
+            // Kategori baslik
+            ctx.fill(cx, COL_Y0, cx + COL_W, COL_Y0 + COL_H, 0xFF0D0D1F);
+            ctx.fill(cx, COL_Y0, cx + 3, COL_Y0 + COL_H, catColor);
+            ctx.drawTextWithShadow(textRenderer, cat, cx + 8, COL_Y0 + (COL_H/2) - 4, catColor);
+
+            // Modul sayisi badge
+            int count = ModuleManager.getByCategory(cat).size();
+            String badge = String.valueOf(count);
+            int bw = textRenderer.getWidth(badge) + 6;
+            ctx.fill(cx + COL_W - bw - 2, COL_Y0 + 5, cx + COL_W - 2, COL_Y0 + COL_H - 5, 0xFF1A1A3A);
+            ctx.drawTextWithShadow(textRenderer, badge, cx + COL_W - bw + 1, COL_Y0 + (COL_H/2) - 4, catColor);
+
+            int cy = COL_Y0 + COL_H + 2;
             for (Module m : ModuleManager.modules) {
                 if (!m.getCategory().equals(cat)) continue;
 
-                // PojavLauncher'da mx/my her zaman dogru gelmeyebilir,
-                // bu yuzden hover kontrolunu daha genis tutuyoruz
-                boolean hovered = mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + COL_H;
-                int bg = m.isEnabled() ? 0xFF16213e : (hovered ? 0xFF2a2a3e : 0xFF0f0f1e);
-                int textColor = m.isEnabled() ? 0xFF00FFAA : 0xFFCCCCCC;
+                boolean hov = mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + COL_H;
+                boolean on  = m.isEnabled();
 
-                // Modul arka plan
+                int bg = on  ? 0xFF111133
+                       : hov ? 0xFF1A1A2E
+                       :       0xFF0A0A1A;
+
                 ctx.fill(cx, cy, cx + COL_W, cy + COL_H, bg);
-                // Sol renkli serit (aktif/pasif gostergesi)
-                ctx.fill(cx, cy, cx + 3, cy + COL_H, m.isEnabled() ? 0xFF00FFAA : 0xFF444444);
-                // Modul adi - dikey ortalanmis
-                ctx.drawTextWithShadow(textRenderer, m.getName(), cx + 8, cy + (COL_H / 2) - 4, textColor);
 
-                // Aktifse sag tarafta kucuk gosterge
-                if (m.isEnabled()) {
-                    ctx.drawTextWithShadow(textRenderer, "ON", cx + COL_W - 22, cy + (COL_H / 2) - 4, 0xFF00FFAA);
+                // Sol serit
+                int stripColor = on ? catColor : 0xFF333344;
+                ctx.fill(cx, cy, cx + 3, cy + COL_H, stripColor);
+
+                // Alt cizgi (ince ayirici)
+                ctx.fill(cx + 3, cy + COL_H - 1, cx + COL_W, cy + COL_H, 0xFF1A1A2E);
+
+                int tc = on ? 0xFFFFFFFF : 0xFF888899;
+                ctx.drawTextWithShadow(textRenderer, m.getName(), cx + 8, cy + (COL_H/2) - 4, tc);
+
+                if (on) {
+                    ctx.drawTextWithShadow(textRenderer, "§a■", cx + COL_W - 12, cy + (COL_H/2) - 4, 0xFF00FFAA);
                 }
 
                 // KillAura alt ayarlari
-                if (m.getName().equals("KillAura") && m.isEnabled()) {
+                if (m.getName().equals("KillAura") && on) {
                     cy += COL_H + 1;
-                    boolean anim = m.isHitAnimals();
-                    boolean subHov = mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H;
-                    ctx.fill(cx + 10, cy, cx + COL_W, cy + SUB_H,
-                             subHov ? 0xFF1e1e3e : 0xFF141428);
-                    // Checkbox gorsel
-                    String checkmark = anim ? "§a[✔]" : "§7[✘]";
-                    ctx.drawTextWithShadow(textRenderer,
-                            checkmark + " §fHayvanlara vur",
-                            cx + 16, cy + (SUB_H / 2) - 4, 0xFFAAAAAA);
+                    renderSubToggle(ctx, mx, my, cx, cy, "Hayvanlara vur", m.isHitAnimals());
+                    cy += SUB_H;
+                    renderSubToggle(ctx, mx, my, cx, cy, "Oyunculara vur", m.isHitPlayers());
                     cy += SUB_H + 1;
                     continue;
                 }
@@ -93,31 +106,37 @@ public class ClickGui extends Screen {
             cx += COL_W + COL_GAP;
         }
 
-        // Altta kucuk ipucu yazisi (PojavLauncher kullanicilari icin)
-        ctx.drawTextWithShadow(textRenderer,
-                "§7[FlexClient] §fDismiss: INSERT tus | Tikla: Ac/Kapat",
-                4, this.height - 12, 0xFFAAAAAA);
+        // Alt bilgi cubu
+        String hint = "§7[FC] §fTikla: Ac/Kapat  |  ESC: Kapat  |  §aFlexClient v2.0";
+        ctx.fill(0, this.height - 14, this.width, this.height, 0xDD000011);
+        ctx.drawTextWithShadow(textRenderer, hint, 4, this.height - 10, 0xFFAAAAAA);
+
+        // Ust watermark
+        ctx.fill(0, 0, this.width, 12, 0xAA000011);
+        ctx.drawTextWithShadow(textRenderer, "§a§lFlex§f§lClient §72.0 §f| §7" + ModuleManager.modules.stream().filter(Module::isEnabled).count() + " aktif modul", 4, 2, 0xFFFFFFFF);
 
         super.render(ctx, mx, my, delta);
     }
 
+    private void renderSubToggle(DrawContext ctx, int mx, int my, int cx, int cy, String label, boolean val) {
+        boolean hov = mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H;
+        ctx.fill(cx + 10, cy, cx + COL_W, cy + SUB_H, hov ? 0xFF1E1E3E : 0xFF101024);
+        String check = val ? "§a[✔] §f" : "§7[✘] §8";
+        ctx.drawTextWithShadow(textRenderer, check + label, cx + 16, cy + (SUB_H/2) - 4, 0xFFAAAAAA);
+    }
+
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
-        // PojavLauncher'da touch, sol tik (0) olarak gelir - bu zaten dogru
         if (btn != 0) return super.mouseClicked(mx, my, btn);
 
-        // Dokunma geri bildirimi kaydet
-        lastTouchX = mx;
-        lastTouchY = my;
-        touchFeedbackTicks = 8;
+        lastTX = mx; lastTY = my; feedbackTicks = 10;
 
-        int cx = COL_X_START;
+        int cx = COL_X0;
         for (String cat : CATEGORIES) {
-            int cy = COL_Y_START + COL_H + 2;
+            int cy = COL_Y0 + COL_H + 2;
             for (Module m : ModuleManager.modules) {
                 if (!m.getCategory().equals(cat)) continue;
 
-                // Tiklanabilir alan - biraz daha genis tutuldu (parmak hassasiyeti)
                 if (mx >= cx && mx <= cx + COL_W && my >= cy && my <= cy + COL_H) {
                     m.toggle();
                     return true;
@@ -127,6 +146,11 @@ public class ClickGui extends Screen {
                     cy += COL_H + 1;
                     if (mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) {
                         m.setSetting("hitAnimals", !m.isHitAnimals());
+                        return true;
+                    }
+                    cy += SUB_H;
+                    if (mx >= cx + 10 && mx <= cx + COL_W && my >= cy && my <= cy + SUB_H) {
+                        m.setSetting("hitPlayers", !m.isHitPlayers());
                         return true;
                     }
                     cy += SUB_H + 1;
@@ -140,17 +164,11 @@ public class ClickGui extends Screen {
         return super.mouseClicked(mx, my, btn);
     }
 
-    // PojavLauncher'da ESC ile de kapanabilmesi icin
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // ESC (256) veya INSERT (260) ile kapat
-        if (keyCode == 256 || keyCode == 260) {
-            this.close();
-            return true;
-        }
+        if (keyCode == 256 || keyCode == 260) { this.close(); return true; }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    @Override
-    public boolean shouldPause() { return false; }
+    @Override public boolean shouldPause() { return false; }
 }
