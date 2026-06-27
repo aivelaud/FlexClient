@@ -11,17 +11,15 @@ package com.flex.client.mixin;
 
   /**
    * GameRendererMixin — MC 1.20.1 uyumlu.
-   *
-   * getNightVisionStrength inject'i kaldırıldı: gövdesi boştu,
-   * refmap'te gereksiz / eşleşmeyen giriş oluşturuyordu.
-   *
-   * renderWorld(float, long, MatrixStack) — NoHurtCam için aktif.
-   * Yarn 1.20.1 imzası: renderWorld(FJLnet/minecraft/client/util/math/MatrixStack;)V
+   * Tam imza: renderWorld(FJLnet/minecraft/client/util/math/MatrixStack;)V
    */
   @Mixin(GameRenderer.class)
   public class GameRendererMixin {
 
-      @Inject(at = @At("HEAD"), method = "renderWorld")
+      @Inject(
+          method = "renderWorld(FJLnet/minecraft/client/util/math/MatrixStack;)V",
+          at = @At("HEAD")
+      )
       private void onRenderWorld(float tickDelta, long limitTime,
                                  MatrixStack matrix, CallbackInfo ci) {
           if (!ModuleManager.isEnabled("NoHurtCam")) return;
