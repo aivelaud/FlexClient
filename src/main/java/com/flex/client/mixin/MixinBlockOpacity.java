@@ -72,4 +72,19 @@ public class MixinBlockOpacity {
         // Non-target bloklar solid değil — yüz culling devre dışı
         cir.setReturnValue(false);
     }
+
+      /**
+       * getLuminance — Xray aktifken hedef cevher blokları max ışık yayar (15).
+       * Bu sayede cevherler uzaktan siyah görünmez, kendi ışıklarıyla parlayarak
+       * çevre aydınlatmasından bağımsız görünür hale gelir.
+       */
+      @Inject(at = @At("HEAD"), method = "getLuminance", cancellable = true)
+      private void flexXrayLuminance(CallbackInfoReturnable<Integer> cir) {
+          if (!ModuleManager.isEnabled("Xray")) return;
+          BlockState state = (BlockState)(Object)this;
+          if (XrayConfig.isTargetBlock(state.getBlock())) {
+              cir.setReturnValue(15); // Maksimum parlaklık — cevherler her zaman görünür
+          }
+      }
+  
 }
