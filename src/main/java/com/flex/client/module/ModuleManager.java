@@ -1,9 +1,6 @@
 package com.flex.client.module;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class ModuleManager {
     public static final List<Module> modules = new ArrayList<>();
@@ -15,70 +12,69 @@ public class ModuleManager {
 
         // ── COMBAT ──────────────────────────────────────────────────
         reg("KillAura",      "Combat",   "Yakın entitelere otomatik saldırır (Single/Multi/Switch)");
+        reg("CrystalAura",   "Combat",   "End Crystal otomatik yerleştirir ve patlatır (Smart/Suicide/Safe)");
         reg("AimAssist",     "Combat",   "Hedeflere doğru otomatik nişan alır");
-        reg("Velocity",      "Combat",   "Geri itilme hızını azaltır");
+        reg("TriggerBot",    "Combat",   "Crosshair'daki entiteye otomatik saldırır");
+        reg("Velocity",      "Combat",   "Geri itilme hızını ayarlar");
         reg("AntiKnockback", "Combat",   "Geri itilmeyi tamamen iptal eder");
-        reg("Criticals",     "Combat",   "Her vuruşu kritik yapar (Jump/Packet)");
-        reg("Reach",         "Combat",   "Saldırı menzilini artırır");
-        reg("TriggerBot",    "Combat",   "Hedefte crosshair olunca otomatik saldırır");
-        reg("AutoTotem",     "Combat",   "Ölüm anında totemi otomatik takar");
+        reg("Criticals",     "Combat",   "Her vuruşu kritik yapar (Jump/Packet/Always)");
+        reg("Reach",         "Combat",   "Blok/entity etkileşim menzilini artırır");
+        reg("AutoTotem",     "Combat",   "Ölüm anında totemi otomatik offhand'e koyar");
         reg("AutoArmor",     "Combat",   "En iyi zırhı otomatik giyer");
-        reg("AutoGap",       "Combat",   "Sağlık düşünce otomatik golden apple yer");
-        reg("AutoWeapon",    "Combat",   "En iyi silahı otomatik seçer");
+        reg("AutoGap",       "Combat",   "Düşük sağlıkta golden apple otomatik yer");
+        reg("AutoWeapon",    "Combat",   "En iyi silahı otomatik seçer (kılıç/balta)");
 
         // ── MOVEMENT ────────────────────────────────────────────────
-        reg("Fly",           "Movement", "Serbestçe uçmanı sağlar");
+        reg("Fly",           "Movement", "Serbestçe uçmanı sağlar (Vanilla/Packet/Creative)");
         reg("Speed",         "Movement", "Yürüş hızını artırır (Strafe/Ground/YPort)");
         reg("Sprint",        "Movement", "Sürekli koşmaya zorlar");
         reg("NoFall",        "Movement", "Düşme hasarını engeller");
-        reg("BunnyHop",      "Movement", "Zıplayarak hız kazanır");
+        reg("BunnyHop",      "Movement", "Zıplayarak sürekli hız kazanır");
         reg("LongJump",      "Movement", "Zıplamada çok uzağa fırlar");
         reg("Step",          "Movement", "Yüksek bloklara direkt çıkar");
         reg("Jesus",         "Movement", "Su/lav üzerinde yürümeyi sağlar");
-        reg("Scaffold",      "Movement", "Otomatik zemin koyar");
+        reg("Scaffold",      "Movement", "Ayak altına otomatik blok yerleştirir");
         reg("SafeWalk",      "Movement", "Kenarlardan düşmez");
         reg("NoSlow",        "Movement", "Yemek/ok çekerken yavaşlamaz");
         reg("AntiVoid",      "Movement", "Void'e düşmeyi engeller");
         reg("Parkour",       "Movement", "Kenar algılamasıyla otomatik zıplar");
-        reg("ElytraFly",     "Movement", "Elitra ile hızlı ve stabil uçuş");
-        reg("Spider",        "Movement", "Duvarlardan tırmanmayı sağlar");
-        reg("HighJump",      "Movement", "Daha yüksek zıplamayı sağlar");
-        reg("AntiAFK",       "Movement", "AFK atmayı engeller");
-        reg("FastLadder",    "Movement", "Merdivende hızlı tırmanış");
+        reg("ElytraFly",     "Movement", "Elitra ile stabil ve hızlı uçuş");
+        reg("Spider",        "Movement", "Duvarlara tırmanmayı sağlar");
+        reg("HighJump",      "Movement", "Çok yüksek zıplamayı sağlar");
+        reg("AntiAFK",       "Movement", "AFK atılmayı engeller");
+        reg("FastLadder",    "Movement", "Merdivende çok hızlı tırmanma");
 
         // ── PLAYER ──────────────────────────────────────────────────
-        reg("AutoEat",       "Player",   "Otomatik yemek yer");
+        reg("AutoEat",       "Player",   "Açlık düşünce otomatik yemek yer");
         reg("Regen",         "Player",   "Canı otomatik yeniler");
-        reg("FastPlace",     "Player",   "Blok yerleşimi hızlanır");
+        reg("FastPlace",     "Player",   "Blok yerleşimini hızlandırır");
         reg("SpeedMine",     "Player",   "Blok kırma hızını artırır");
-        reg("AutoTool",      "Player",   "En iyi aleti otomatik seçer");
-        reg("VeinMiner",     "Player",   "Bağlı cevherlerin hepsini kırar");
+        reg("AutoTool",      "Player",   "Kırılacak blok için en iyi aleti seçer");
+        reg("VeinMiner",     "Player",   "Tüm bağlı cevher damarını kırar");
         reg("AutoLog",       "Player",   "Düşük sağlıkta otomatik çıkış yapar");
-        reg("AntiHunger",    "Player",   "Açlık tüketimini azaltır");
+        reg("AntiHunger",    "Player",   "Açlık tüketimini sıfırlar");
         reg("InvWalk",       "Player",   "Envanter açıkken yürüyebilir");
-        reg("Nuker",         "Player",   "Etraftaki blokları otomatik kırar");
+        reg("Nuker",         "Player",   "Etraftaki blokları otomatik kırar (Sphere/Flat/ID)");
         reg("ChestStealer",  "Player",   "Sandıktan otomatik eşya alır");
-        reg("Multitask",     "Player",   "Madencilik/savaş sırasında yemek yer");
+        reg("Multitask",     "Player",   "Madencilik/savaş sırasında yemek yiyebilir");
 
         // ── RENDER ──────────────────────────────────────────────────
-        reg("Xray",          "Render",   "Değerli blokları gösterir");
-        reg("Fullbright",    "Render",   "Karanlıkta tam parlaklık");
-        reg("ESP",           "Render",   "Oyuncular etrafında kutu çizer");
-        reg("Tracers",       "Render",   "Oyunculara çizgi çeker");
-        reg("StorageESP",    "Render",   "Sandıkları/barelleri vurgular");
-        reg("HoleESP",       "Render",   "Güvenli delikleri vurgular");
-        reg("NameTags",      "Render",   "Oyuncu isimlerini büyük gösterir");
+        reg("Xray",          "Render",   "Cevher/sandık/spawner gibi değerli blokları gösterir");
+        reg("Fullbright",    "Render",   "Karanlıkta tam parlaklık sağlar");
+        reg("ESP",           "Render",   "Oyuncular/moblar etrafında kutu çizer (Box/Outline/Corner)");
+        reg("Tracers",       "Render",   "Oyunculara/sandıklara çizgi çeker");
+        reg("StorageESP",    "Render",   "Sandık/barrel/shulker kutularını vurgular");
+        reg("HoleESP",       "Render",   "Güvenli obsidyen deliklerini vurgular");
+        reg("NameTags",      "Render",   "Oyuncu isimlerini büyük ve detaylı gösterir");
         reg("Chams",         "Render",   "Düşmanları duvar arkasından gösterir");
-        reg("NoHurtCam",     "Render",   "Hasar alınca ekran titremez");
+        reg("NoHurtCam",     "Render",   "Hasar alınca ekran titremesini engeller");
         reg("Zoom",          "Render",   "Z tuşuyla yakınlaştırır");
         reg("HandView",      "Render",   "El animasyonlarını özelleştirir");
         reg("FreeLook",      "Render",   "Bakış açısını serbestçe döndürür");
-        reg("NoRender",      "Render",   "Ateş/hava durumu efektlerini kaldırır");
+        reg("NoRender",      "Render",   "Ateş/hava durumu gibi gereksiz efektleri kaldırır");
     }
 
-    private static void reg(String name, String cat, String desc) {
-        modules.add(new Module(name, cat, desc));
-    }
+    private static void reg(String n, String c, String d) { modules.add(new Module(n, c, d)); }
 
     public static Module get(String name) {
         if (name == null) return null;
@@ -99,17 +95,13 @@ public class ModuleManager {
 
     public static List<String> getCategories() {
         List<String> cats = new ArrayList<>();
-        for (Module m : modules) {
-            if (!cats.contains(m.getCategory())) cats.add(m.getCategory());
-        }
+        for (Module m : modules) if (!cats.contains(m.getCategory())) cats.add(m.getCategory());
         return cats;
     }
 
     public static Map<String, List<Module>> getGrouped() {
         Map<String, List<Module>> map = new LinkedHashMap<>();
-        for (Module m : modules) {
-            map.computeIfAbsent(m.getCategory(), k -> new ArrayList<>()).add(m);
-        }
+        for (Module m : modules) map.computeIfAbsent(m.getCategory(), k -> new ArrayList<>()).add(m);
         return map;
     }
 
