@@ -64,6 +64,8 @@ public class ClickGui extends Screen {
     private boolean searchFocused = false;
     private int    listScrollY   = 0;
     private int    maxScrollY    = 0;
+    private int    listAreaY     = 0;
+    private int    listAreaBotY  = 0;
     private float  openAnim      = 0f;
 
     public ClickGui() { super(Text.literal("FlexClient")); }
@@ -136,7 +138,9 @@ public class ClickGui extends Screen {
 
         List<Module> mods = getFilteredModules();
         maxScrollY  = Math.max(0, mods.size() * (ITEM_H + 1) - listH);
-        listScrollY = Math.min(listScrollY, maxScrollY);
+        listScrollY  = Math.min(listScrollY, maxScrollY);
+        listAreaY    = listY;
+        listAreaBotY = listBotY;
         int catC = CAT_COLORS[selectedCat];
         int iy   = listY - listScrollY;
 
@@ -464,8 +468,19 @@ public class ClickGui extends Screen {
         }
     }
 
-    @Override
-    public boolean mouseScrolled(double mx, double my, double vScr) {
+    /** PojavLauncher mobil: dokunmatik sürükleme ile kaydırma */
+      @Override
+      public boolean mouseDragged(double mx, double my, int button, double deltaX, double deltaY) {
+          int lx = (this.width - LEFT_W - RIGHT_W - 4) / 2;
+          if (mx >= lx && mx <= lx + LEFT_W - 4 && my >= listAreaY && my <= listAreaBotY) {
+              listScrollY = Math.max(0, Math.min(maxScrollY, listScrollY - (int) deltaY));
+              return true;
+          }
+          return super.mouseDragged(mx, my, button, deltaX, deltaY);
+      }
+
+      @Override
+      public boolean mouseScrolled(double mx, double my, double vScr) {
         listScrollY = Math.max(0, Math.min(maxScrollY, listScrollY - (int)(vScr * 14)));
         return true;
     }
