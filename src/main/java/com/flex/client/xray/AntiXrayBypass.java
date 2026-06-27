@@ -249,8 +249,18 @@ public class AntiXrayBypass {
                 continue;
             }
 
+            // Önce: hava komşusu olan bloklar → kesinlikle gerçek (oyuncu kazımış)
+            List<BlockPos> airReal = new ArrayList<>();
+            List<BlockPos> underground = new ArrayList<>();
+            for (BlockPos p : positions) {
+                if (hasAirNeighbor(world, p)) airReal.add(p);
+                else underground.add(p);
+            }
+            result.realPositions.addAll(airReal);
+            List<BlockPos> toAnalyze = underground.isEmpty() ? positions : underground;
+
             // Damar bağlantı analizi ile gerçek vs sahte ayırt et
-            List<Set<BlockPos>> veins = findConnectedVeins(positions);
+            List<Set<BlockPos>> veins = findConnectedVeins(toAnalyze);
             XrayConfig.OreEntry oreEntry = XrayConfig.getEntry(b);
             int maxVein = oreEntry != null ? oreEntry.maxVeinSize : 8;
 
@@ -439,15 +449,29 @@ public class AntiXrayBypass {
      * (Mode 2: izole sahte cevherler için)
      */
     private static boolean isLikelyFakeSingle(BlockPos pos, World world, Block b) {
-        // Grid pozisyonunda mı?
-        if (pos.getX() % 8 == 0 || pos.getZ() % 8 == 0) return true;
-        // Çevresinde hiç taş yok mu? (havada — imkansız doğal durum)
-        if (countStoneNeighbors(pos, world) == 0) return true;
-        // Y çok uygunsuz mu?
-        XrayConfig.OreEntry e = XrayConfig.getEntry(b);
-        if (e != null && Math.abs(pos.getY() - e.bestY) > 30) return true;
-        return false;
-    }
+          // 1. Hava komşusu varsa → kesinlikle gerçek blok (oyuncu kazımış, sunucu gösteriyor)
+          if (hasAirNeighbor(world, pos)) return false;
+
+          XrayConfig.OreEntry e = XrayConfig.getEntry(b);
+
+          // 2. Y aralığı tamamen dışında → kesinlikle sahte
+          if (e != null && (pos.getY() < e.minY - 8 || pos.getY() > e.maxY + 8)) return true;
+
+          // 3. Paper Mode 2 grid: sahte bloklar ~8 blokta bir periyodik yerleftirilir
+          int gx = Math.abs(pos.getX() % 8);
+          int gz = Math.abs(pos.getZ() % 8);
+          boolean onGrid = (gx <= 1 || gx >= 7) && (gz <= 1 || gz >= 7);
+          if (onGrid) return true;
+
+          // 4. Taş komşusu yok → havada asılı, doğal oluşum imkansız
+          int stoneN = countStoneNeighbors(pos, world);
+          if (stoneN == 0) return true;
+
+          // 5. Az taş + Y bestY'den uzak → şüpheli sahte
+          if (stoneN < 2 && e != null && Math.abs(pos.getY() - e.bestY) > 25) return true;
+
+          return false;
+      }
 
     private static boolean hasAirNeighbor(World world, BlockPos pos) {
         int[] dx = {1,-1,0,0,0,0};
