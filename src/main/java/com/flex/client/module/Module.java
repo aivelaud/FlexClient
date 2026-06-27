@@ -149,6 +149,10 @@ public class Module {
             case "HighJump":
                 floatSettings.put("boost",       0.5f);
                 break;
+            case "VClip":
+                floatSettings.put("distance", 5.0f);
+                boolSettings.put("up", true);
+                break;
             case "FastLadder":
                 floatSettings.put("speed",       0.3f);
                 break;
