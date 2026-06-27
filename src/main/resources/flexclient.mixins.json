@@ -1,24 +1,23 @@
 {
-    "required": true,
-    "minVersion": "0.8",
-    "package": "com.flex.client.mixin",
-    "compatibilityLevel": "JAVA_17",
-    "client": [
-      "PlayerMixin",
-      "BlockMixin",
-      "MixinBlockOpacity",
-      "StepHeightAccessor",
-      "FovMixin",
-      "GameRendererMixin",
-      "JesusMixin",
-      "AntiHungerMixin",
-      "ReachMixin",
-      "SpeedMineMixin",
-      "NoRenderMixin",
-      "CrystalAuraMixin"
-    ],
-    "injectors": {
-      "defaultRequire": 1
+      "required": true,
+      "minVersion": "0.8",
+      "package": "com.flex.client.mixin",
+      "compatibilityLevel": "JAVA_17",
+      "client": [
+        "PlayerMixin",
+        "BlockMixin",
+        "MixinBlockOpacity",
+        "StepHeightAccessor",
+        "GameRendererMixin",
+        "JesusMixin",
+        "AntiHungerMixin",
+        "ReachMixin",
+        "SpeedMineMixin",
+        "NoRenderMixin",
+        "CrystalAuraMixin"
+      ],
+      "injectors": {
+        "defaultRequire": 1
+      }
     }
-  }
   
