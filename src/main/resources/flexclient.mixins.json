@@ -8,7 +8,6 @@
       "BlockMixin",
       "MixinBlockOpacity",
       "StepHeightAccessor",
-      "GameRendererMixin",
       "JesusMixin",
       "AntiHungerMixin",
       "ReachMixin",

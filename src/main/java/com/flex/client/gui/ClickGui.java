@@ -49,6 +49,26 @@ public class ClickGui extends Screen {
         MODE_OPTIONS.put("Tracers",     new String[]{"Eyes","Crosshair"});
     }
 
+    /**
+     * Xray modülü için özel cevher seçici verileri.
+     * {settingKey, displayName, 0xRRGGBB renk}
+     */
+    private static final Object[][] XRAY_ORES = {
+        {"showDiamond",       "Elmas",        0x55FFFF},
+        {"showGold",          "Altin",        0xFFD700},
+        {"showIron",          "Demir",        0xBBBBBB},
+        {"showAncientDebris", "Eski Kalinti", 0xCC5500},
+        {"showEmerald",       "Zumrut",       0x00CC44},
+        {"showChests",        "Sandik",       0xAA7733},
+        {"showSpawner",       "Spawner",      0x8888FF},
+        {"showCoal",          "Komur",        0x555555},
+        {"showLapis",         "Lapis",        0x2266CC},
+        {"showRedstone",      "Redstone",     0xFF3333},
+        {"showCopper",        "Bakir",        0xCC7722},
+    };
+
+    private static final int XRAY_TILE_H = 20;
+
     // ── Layout ───────────────────────────────────────────────────
     private static final int LEFT_W = 200;
     private static final int RIGHT_W = 232;
@@ -85,16 +105,14 @@ public class ClickGui extends Screen {
         int guiX = (sW - guiW) / 2;
         int guiY = 10 + (int)((1 - anim) * 30);
 
-        // Koyu arka plan
         ctx.fill(0, 0, sW, sH, applyAlpha(0xFF000022, alpha / 2));
         ctx.fill(guiX, guiY, guiX + guiW, guiY + guiH, applyAlpha(BG_DARK, alpha));
 
-        // ── Sol Panel ────────────────────────────────────────────
+        // ── Sol Panel ─────────────────────────────────────────────
         int lx = guiX;
         ctx.fill(lx, guiY, lx + LEFT_W, guiY + guiH, applyAlpha(BG_PANEL, alpha));
         ctx.fill(lx, guiY, lx + 2, guiY + guiH, applyAlpha(ACCENT_CYAN, alpha));
 
-        // Başlık
         ctx.fill(lx + 2, guiY, lx + LEFT_W, guiY + 30, applyAlpha(BG_DARK, alpha));
         ctx.drawTextWithShadow(textRenderer,
             "\u00a7b\u00a7lFlex\u00a7f\u00a7lClient \u00a783.2",
@@ -102,7 +120,6 @@ public class ClickGui extends Screen {
         ctx.fill(lx + 2, guiY + 29, lx + LEFT_W, guiY + 30,
             applyAlpha(ACCENT_CYAN & 0x00FFFFFF | 0x55000000, alpha));
 
-        // Kategori sekmeleri
         int tabY = guiY + 31;
         int tabW = (LEFT_W - 2) / CATEGORIES.length;
         for (int i = 0; i < CATEGORIES.length; i++) {
@@ -121,7 +138,6 @@ public class ClickGui extends Screen {
                 applyAlpha(sel ? TEXT_WHITE : TEXT_DIM, alpha));
         }
 
-        // Arama
         int searchY = tabY + TAB_H + 2;
         ctx.fill(lx + 2, searchY, lx + LEFT_W, searchY + SRCH_H, applyAlpha(BG_ITEM, alpha));
         ctx.fill(lx + 2, searchY, lx + 4, searchY + SRCH_H,
@@ -129,7 +145,6 @@ public class ClickGui extends Screen {
         String srch = searchQuery.isEmpty() ? "\u00a77Ara..." : "\u00a7f" + searchQuery + (searchFocused ? "\u00a7e|" : "");
         ctx.drawTextWithShadow(textRenderer, srch, lx + PAD, searchY + 8, applyAlpha(TEXT_WHITE, alpha));
 
-        // Modül listesi
         int listY    = searchY + SRCH_H + 2;
         int listBotY = guiY + guiH - 2;
         int listH    = listBotY - listY;
@@ -167,7 +182,6 @@ public class ClickGui extends Screen {
             iy += ITEM_H + 1;
         }
 
-        // Scroll bar
         if (maxScrollY > 0 && mods.size() > 0) {
             int total = mods.size() * (ITEM_H + 1);
             float ratio = (float) listScrollY / maxScrollY;
@@ -177,7 +191,7 @@ public class ClickGui extends Screen {
             ctx.fill(lx + LEFT_W - 3, sbY, lx + LEFT_W - 1, sbY + sbH, applyAlpha(ACCENT_CYAN, alpha));
         }
 
-        // ── Sağ Panel ────────────────────────────────────────────
+        // ── Sağ Panel ─────────────────────────────────────────────
         int rx = lx + LEFT_W + 4;
         int ry = guiY;
         ctx.fill(rx, ry, rx + RIGHT_W, ry + guiH, applyAlpha(BG_PANEL, alpha));
@@ -188,7 +202,6 @@ public class ClickGui extends Screen {
         else
             renderEmptyPanel(ctx, rx, ry, guiH, alpha);
 
-        // Alt çubuk
         ctx.fill(0, sH - 14, sW, sH, applyAlpha(BG_DARK, alpha));
         ctx.drawTextWithShadow(textRenderer,
             "\u00a77[L.Tık]\u00a7f Toggle  \u00a77[R.Tık/SEC]\u00a7f Detay  \u00a77[Scroll]\u00a7f Kaydır  \u00a77[ESC]\u00a7f Kapat",
@@ -198,7 +211,7 @@ public class ClickGui extends Screen {
     }
 
     // ═════════════════════════════════════════════════════════════
-    //  DETAY PANELİ — Evrensel Otomatik Ayar Sistemi
+    //  DETAY PANELİ
     // ═════════════════════════════════════════════════════════════
     private void renderDetailPanel(DrawContext ctx, int rx, int ry, int guiH,
                                    Module mod, int alpha, int mx, int my) {
@@ -237,7 +250,7 @@ public class ClickGui extends Screen {
         py += 4;
         divider(ctx, rx, rx + RIGHT_W - 2, py, alpha); py += 8;
 
-        // ── MODE seçici ──────────────────────────────────────────
+        // ── MODE seçici ───────────────────────────────────────────
         String[] modes = MODE_OPTIONS.get(mod.getName());
         if (modes != null) {
             sectionLabel(ctx, rx, py, pad, alpha, "\u00a7eMode Seç:", ACCENT_YELL);
@@ -260,34 +273,38 @@ public class ClickGui extends Screen {
             divider(ctx, rx, rx + RIGHT_W - 2, py, alpha); py += 8;
         }
 
-        // ── BOOL Ayarlar ─────────────────────────────────────────
-        Map<String, Boolean> bools = mod.getBoolSettings();
-        if (!bools.isEmpty()) {
-            sectionLabel(ctx, rx, py, pad, alpha, "\u00a7fAnahtarlar", TEXT_DIM);
-            py += 13;
-            List<String> keys = new ArrayList<>(bools.keySet());
-            Collections.sort(keys);
-            for (String key : keys) {
-                boolean val = mod.getSetting(key);
-                boolean hov = mx >= rx + pad && mx <= rx + RIGHT_W - pad && my >= py && my <= py + 16;
-                ctx.fill(rx + pad, py, rx + RIGHT_W - pad, py + 16,
-                    applyAlpha(hov ? BG_ITEM_HOV : BG_ITEM, alpha));
-                // Checkbox
-                ctx.fill(rx + pad + 2, py + 3, rx + pad + 12, py + 13,
-                    applyAlpha(val ? catC & 0x00FFFFFF | 0x88000000 : DIVIDER, alpha));
-                if (val)
-                    ctx.fill(rx + pad + 4, py + 5, rx + pad + 10, py + 11, applyAlpha(catC, alpha));
-                ctx.drawTextWithShadow(textRenderer, "\u00a7f" + camelToNice(key),
-                    rx + pad + 16, py + 4, applyAlpha(val ? TEXT_WHITE : TEXT_GRAY, alpha));
-                String vs = val ? "\u00a7aAçık" : "\u00a7cKapalı";
-                ctx.drawTextWithShadow(textRenderer, vs,
-                    rx + RIGHT_W - pad - textRenderer.getWidth(val ? "Açık" : "Kapalı") - 2, py + 4,
-                    applyAlpha(TEXT_WHITE, alpha));
-                py += 18;
+        // ── XRAY CEVHER SEÇİCİ (özel render) ────────────────────
+        if ("Xray".equals(mod.getName())) {
+            py = renderXrayOreSelector(ctx, rx, py, pad, alpha, mod, mx, my);
+        } else {
+            // ── BOOL Ayarlar (diğer modüller) ─────────────────────
+            Map<String, Boolean> bools = mod.getBoolSettings();
+            if (!bools.isEmpty()) {
+                sectionLabel(ctx, rx, py, pad, alpha, "\u00a7fAnahtarlar", TEXT_DIM);
+                py += 13;
+                List<String> keys = new ArrayList<>(bools.keySet());
+                Collections.sort(keys);
+                for (String key : keys) {
+                    boolean val = mod.getSetting(key);
+                    boolean hov = mx >= rx + pad && mx <= rx + RIGHT_W - pad && my >= py && my <= py + 16;
+                    ctx.fill(rx + pad, py, rx + RIGHT_W - pad, py + 16,
+                        applyAlpha(hov ? BG_ITEM_HOV : BG_ITEM, alpha));
+                    ctx.fill(rx + pad + 2, py + 3, rx + pad + 12, py + 13,
+                        applyAlpha(val ? catC & 0x00FFFFFF | 0x88000000 : DIVIDER, alpha));
+                    if (val)
+                        ctx.fill(rx + pad + 4, py + 5, rx + pad + 10, py + 11, applyAlpha(catC, alpha));
+                    ctx.drawTextWithShadow(textRenderer, "\u00a7f" + camelToNice(key),
+                        rx + pad + 16, py + 4, applyAlpha(val ? TEXT_WHITE : TEXT_GRAY, alpha));
+                    String vs = val ? "\u00a7aAçık" : "\u00a7cKapalı";
+                    ctx.drawTextWithShadow(textRenderer, vs,
+                        rx + RIGHT_W - pad - textRenderer.getWidth(val ? "Açık" : "Kapalı") - 2, py + 4,
+                        applyAlpha(TEXT_WHITE, alpha));
+                    py += 18;
+                }
             }
         }
 
-        // ── INT Ayarlar ──────────────────────────────────────────
+        // ── INT Ayarlar ───────────────────────────────────────────
         Map<String, Integer> ints = mod.getIntSettings();
         if (!ints.isEmpty()) {
             py += 2; divider(ctx, rx, rx + RIGHT_W - 2, py, alpha); py += 8;
@@ -297,7 +314,6 @@ public class ClickGui extends Screen {
                 ctx.fill(rx + pad, py, rx + RIGHT_W - pad, py + 16, applyAlpha(BG_ITEM, alpha));
                 ctx.drawTextWithShadow(textRenderer, "\u00a77" + camelToNice(e.getKey()),
                     rx + pad + 4, py + 4, applyAlpha(TEXT_GRAY, alpha));
-                // [-] [değer] [+]
                 int vx = rx + RIGHT_W - pad - 52;
                 ctx.fill(vx, py + 2, vx + 14, py + 14, applyAlpha(0xFF1A0A0A, alpha));
                 ctx.fill(vx + 18, py + 2, vx + 36, py + 14, applyAlpha(0xFF0A1A0A, alpha));
@@ -309,7 +325,7 @@ public class ClickGui extends Screen {
             }
         }
 
-        // ── FLOAT Ayarlar ────────────────────────────────────────
+        // ── FLOAT Ayarlar ─────────────────────────────────────────
         Map<String, Float> floats = mod.getFloatSettings();
         if (!floats.isEmpty()) {
             py += 2; divider(ctx, rx, rx + RIGHT_W - 2, py, alpha); py += 8;
@@ -340,6 +356,65 @@ public class ClickGui extends Screen {
             rx + pad + 2, py + 13, applyAlpha(TEXT_DIM, alpha));
     }
 
+    /**
+     * Xray modülü için renkli cevher seçici kartlar çizer.
+     * Her kart: renk karesi + cevher adı + açık/kapalı durumu.
+     * @return güncellenen py
+     */
+    private int renderXrayOreSelector(DrawContext ctx, int rx, int py, int pad, int alpha,
+                                      Module mod, int mx, int my) {
+        // Başlık
+        sectionLabel(ctx, rx, py, pad, alpha, "\u00a7e\u25C6 Cevher Sec\u0327ic\u0327i", ACCENT_YELL);
+        py += 2;
+        ctx.drawTextWithShadow(textRenderer,
+            "\u00a77Sarı kutu = AntiXray onaylı gerçek cevher",
+            rx + pad, py + 10, applyAlpha(TEXT_DIM, alpha));
+        py += 20;
+
+        int tileW = (RIGHT_W - pad * 2 - 4) / 2;
+
+        for (int i = 0; i < XRAY_ORES.length; i++) {
+            String key  = (String)  XRAY_ORES[i][0];
+            String name = (String)  XRAY_ORES[i][1];
+            int    rgb  = (Integer) XRAY_ORES[i][2];
+            int oreColor = 0xFF000000 | rgb;
+
+            int col  = i % 2;
+            int row  = i / 2;
+            int tx   = rx + pad + col * (tileW + 4);
+            int ty   = py + row * XRAY_TILE_H;
+
+            boolean val = mod.getSetting(key);
+            boolean hov = mx >= tx && mx <= tx + tileW && my >= ty && my <= ty + XRAY_TILE_H - 2;
+
+            // Kart arka planı
+            ctx.fill(tx, ty, tx + tileW, ty + XRAY_TILE_H - 2,
+                applyAlpha(hov ? BG_ITEM_HOV : BG_ITEM, alpha));
+            // Sol renk şeridi
+            ctx.fill(tx, ty, tx + 2, ty + XRAY_TILE_H - 2,
+                applyAlpha(val ? oreColor : DIVIDER, alpha));
+            // Renk karesi
+            ctx.fill(tx + 4, ty + 3, tx + 13, ty + XRAY_TILE_H - 5,
+                applyAlpha(oreColor, val ? alpha : alpha / 3));
+            // Cevher adı
+            ctx.drawTextWithShadow(textRenderer,
+                val ? "\u00a7f" + name : "\u00a78" + name,
+                tx + 16, ty + 5, applyAlpha(val ? oreColor : TEXT_DIM, alpha));
+            // Durum sembolü
+            String sym = val ? "\u00a7a\u2714" : "\u00a7c\u2716";
+            ctx.drawTextWithShadow(textRenderer, sym,
+                tx + tileW - 10, ty + 5, applyAlpha(TEXT_WHITE, alpha));
+        }
+
+        // Çift sütunlu grid için toplam satır sayısını hesapla
+        int rows = (XRAY_ORES.length + 1) / 2;
+        py += rows * XRAY_TILE_H + 4;
+
+        divider(ctx, rx, rx + RIGHT_W - 2, py, alpha);
+        py += 8;
+        return py;
+    }
+
     private void renderEmptyPanel(DrawContext ctx, int rx, int ry, int guiH, int alpha) {
         int cx = rx + RIGHT_W / 2, cy = ry + guiH / 2;
         ctx.drawTextWithShadow(textRenderer, "\u00a7b\u00a7l{ FlexClient }",
@@ -362,7 +437,7 @@ public class ClickGui extends Screen {
         int tabY = guiY + 31, tabW = (LEFT_W - 2) / CATEGORIES.length;
         int lx = guiX;
 
-        // Kategori sekmesi
+        // Kategori
         for (int i = 0; i < CATEGORIES.length; i++) {
             int tx = lx + 2 + i * tabW;
             if (mx >= tx && mx <= tx + tabW && my >= tabY && my <= tabY + TAB_H) {
@@ -387,7 +462,7 @@ public class ClickGui extends Screen {
             iy += ITEM_H + 1;
         }
 
-        // Sağ panel tıklamaları
+        // Sağ panel
         int rx = lx + LEFT_W + 4, ry = guiY, pad = PAD + 4;
         if (selectedMod != null) {
             // Toggle butonu
@@ -409,7 +484,7 @@ public class ClickGui extends Screen {
                     bx2 += mw + 3;
                 }
             }
-            // Bool / Int / Float tıklamaları
+            // Detay tıklamaları
             handleDetailClicks(mx, my, rx, ry, pad, selectedMod);
         }
         return super.mouseClicked(mx, my, btn);
@@ -421,7 +496,25 @@ public class ClickGui extends Screen {
         boolean hasMode = MODE_OPTIONS.containsKey(mod.getName());
         int py = ry + 58 + 12 + descH + 4 + 8 + (hasMode ? 35 : 0);
 
-        // Bool
+        // ── XRAY özel: cevher seçici tıklama ─────────────────────
+        if ("Xray".equals(mod.getName())) {
+            py += 22; // sectionLabel (13) + alt başlık satırı (20) - 11
+            int tileW = (RIGHT_W - pad * 2 - 4) / 2;
+            for (int i = 0; i < XRAY_ORES.length; i++) {
+                String key = (String) XRAY_ORES[i][0];
+                int col = i % 2;
+                int row = i / 2;
+                int tx  = rx + pad + col * (tileW + 4);
+                int ty  = py + row * XRAY_TILE_H;
+                if (mx >= tx && mx <= tx + tileW && my >= ty && my <= ty + XRAY_TILE_H - 2) {
+                    mod.setSetting(key, !mod.getSetting(key));
+                    return;
+                }
+            }
+            return;
+        }
+
+        // ── Bool (diğer modüller) ─────────────────────────────────
         Map<String, Boolean> bools = mod.getBoolSettings();
         if (!bools.isEmpty()) {
             py += 13;
@@ -469,18 +562,18 @@ public class ClickGui extends Screen {
     }
 
     /** PojavLauncher mobil: dokunmatik sürükleme ile kaydırma */
-      @Override
-      public boolean mouseDragged(double mx, double my, int button, double deltaX, double deltaY) {
-          int lx = (this.width - LEFT_W - RIGHT_W - 4) / 2;
-          if (mx >= lx && mx <= lx + LEFT_W - 4 && my >= listAreaY && my <= listAreaBotY) {
-              listScrollY = Math.max(0, Math.min(maxScrollY, listScrollY - (int) deltaY));
-              return true;
-          }
-          return super.mouseDragged(mx, my, button, deltaX, deltaY);
-      }
+    @Override
+    public boolean mouseDragged(double mx, double my, int button, double deltaX, double deltaY) {
+        int lx = (this.width - LEFT_W - RIGHT_W - 4) / 2;
+        if (mx >= lx && mx <= lx + LEFT_W - 4 && my >= listAreaY && my <= listAreaBotY) {
+            listScrollY = Math.max(0, Math.min(maxScrollY, listScrollY - (int) deltaY));
+            return true;
+        }
+        return super.mouseDragged(mx, my, button, deltaX, deltaY);
+    }
 
-      @Override
-      public boolean mouseScrolled(double mx, double my, double vScr) {
+    @Override
+    public boolean mouseScrolled(double mx, double my, double vScr) {
         listScrollY = Math.max(0, Math.min(maxScrollY, listScrollY - (int)(vScr * 14)));
         return true;
     }

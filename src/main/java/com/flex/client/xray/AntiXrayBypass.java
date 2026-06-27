@@ -537,6 +537,26 @@ public class AntiXrayBypass {
         return r.realPositions.contains(pos);
     }
 
+    /**
+     * Oyuncu etrafındaki chunk'larda gerçek cevher konumlarını döner.
+     * XrayRealOreRenderer tarafından sarı kutu çizmek için kullanılır.
+     */
+    public static java.util.Collection<BlockPos> getRealPositionsNear(BlockPos center, int chunkRadius) {
+        java.util.List<BlockPos> result = new java.util.ArrayList<>();
+        int ccx = center.getX() >> 4;
+        int ccz = center.getZ() >> 4;
+        for (java.util.Map.Entry<Long, ChunkAnalysisResult> entry : analysisCache.entrySet()) {
+            ChunkAnalysisResult r = entry.getValue();
+            if (r.realPositions.isEmpty()) continue;
+            int dx = Math.abs(r.pos.x - ccx);
+            int dz = Math.abs(r.pos.z - ccz);
+            if (dx <= chunkRadius && dz <= chunkRadius) {
+                result.addAll(r.realPositions);
+            }
+        }
+        return result;
+    }
+
     // ─── İstatistik API ──────────────────────────────────────────
 
     public static boolean isBypassActive()        { return bypassActive; }

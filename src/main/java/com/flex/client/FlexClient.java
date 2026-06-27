@@ -1,13 +1,16 @@
 package com.flex.client;
 
 import com.flex.client.gui.ClickGui;
+import com.flex.client.gui.CrashGuardScreen;
 import com.flex.client.module.Module;
 import com.flex.client.module.ModuleManager;
 import com.flex.client.render.ESPRenderer;
 import com.flex.client.xray.AntiXrayBypass;
 import com.flex.client.xray.ChunkOreScanner;
 import com.flex.client.xray.XrayHUD;
+import com.flex.client.xray.XrayRealOreRenderer;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
@@ -16,8 +19,6 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.mob.Monster;
-import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
@@ -40,26 +41,41 @@ public class FlexClient implements ClientModInitializer {
     public void onInitializeClient() {
         INSTANCE = this;
         ModuleManager.init();
+        CrashGuard.initialize();
 
+        // ── Sunucuya bağlanınca ─────────────────────────────────────────
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            client.execute(() -> client.setScreen(new ClickGui()));
             ChunkOreScanner.clearAll();
             AntiXrayBypass.reset();
+            client.execute(() -> {
+                if (!CrashGuard.getBlacklist().isEmpty()) {
+                    // Önceki oturumda çöken modüller var — uyarı ekranı göster
+                    client.setScreen(new CrashGuardScreen());
+                } else {
+                    client.setScreen(new ClickGui());
+                }
+            });
         });
 
+        // ── Sunucudan ayrılınca ─────────────────────────────────────────
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ChunkOreScanner.clearAll();
             AntiXrayBypass.reset();
         });
 
-        // ── WorldRender: ESP + Tracers + StorageESP ──────────────────
-        WorldRenderEvents.AFTER_ENTITIES.register(context -> {
-            try {
-                ESPRenderer.render(context);
-            } catch (Exception ignored) {}
+        // ── Chunk kaldırılınca: cache temizle ───────────────────────────
+        ClientChunkEvents.CHUNK_UNLOAD.register((world, chunk) -> {
+            ChunkOreScanner.onChunkUnloaded(chunk.getPos());
+            AntiXrayBypass.invalidateChunk(chunk.getPos());
         });
 
-        // ── HUD Render ────────────────────────────────────────────────
+        // ── WorldRender: ESP + Tracers + StorageESP + XrayGerçekCevher ─
+        WorldRenderEvents.AFTER_ENTITIES.register(context -> {
+            try { ESPRenderer.render(context); } catch (Exception ignored) {}
+            try { XrayRealOreRenderer.render(context); } catch (Exception ignored) {}
+        });
+
+        // ── HUD Render ─────────────────────────────────────────────────
         HudRenderCallback.EVENT.register((DrawContext ctx, float tickDelta) -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.currentScreen != null || client.world == null) return;
@@ -74,10 +90,13 @@ public class FlexClient implements ClientModInitializer {
                 client.player != null ? client.player.getBlockPos().getY() : 0);
         });
 
-        // ── Client Tick ───────────────────────────────────────────────
+        // ── Client Tick ────────────────────────────────────────────────
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.world == null) return;
+
+            CrashGuard.tick();
             XrayHUD.onTick();
+
             if (client.currentScreen != null) { wasMouseDown = false; wasGuiKey = false; return; }
 
             long win = client.getWindow().getHandle();
@@ -102,7 +121,7 @@ public class FlexClient implements ClientModInitializer {
         System.out.println("[FlexClient " + VERSION + "] Yuklendi! " + ModuleManager.modules.size() + " modul hazir.");
     }
 
-    // ── Watermark ─────────────────────────────────────────────────────
+    // ── Watermark ──────────────────────────────────────────────────────
     private void renderWatermark(DrawContext ctx, MinecraftClient client) {
         ctx.fill(BTN_X - 2, BTN_Y - 2, BTN_X + BTN_W + 2, BTN_Y + BTN_H + 2, 0xBB000015);
         ctx.fill(BTN_X - 2, BTN_Y - 2, BTN_X, BTN_Y + BTN_H + 2, 0xFF00FFCC);
@@ -140,7 +159,6 @@ public class FlexClient implements ClientModInitializer {
             if (!(entity instanceof LivingEntity le) || le.isDead()) continue;
             if (!(entity instanceof PlayerEntity)) continue;
 
-            // Project 3D world position to 2D screen
             Vec3d entityPos = entity.getPos().add(0, entity.getHeight() + 0.3, 0);
             double[] screen = worldToScreen(entityPos, client, tickDelta);
             if (screen == null) continue;
@@ -165,7 +183,6 @@ public class FlexClient implements ClientModInitializer {
             Vec3d camPos = camera.getPos();
             Vec3d rel = worldPos.subtract(camPos);
 
-            // Simple projection using camera rotation
             float yawRad = (float) Math.toRadians(camera.getYaw());
             float pitchRad = (float) Math.toRadians(camera.getPitch());
 
@@ -173,7 +190,7 @@ public class FlexClient implements ClientModInitializer {
             double ry = -rel.y * Math.cos(pitchRad) - (rel.x * Math.sin(yawRad) * Math.sin(pitchRad)) + (rel.z * Math.cos(yawRad) * Math.sin(pitchRad)) * (-1);
             double rz = -rel.x * Math.sin(yawRad) * Math.cos(pitchRad) + rel.y * Math.sin(pitchRad) + rel.z * Math.cos(yawRad) * Math.cos(pitchRad);
 
-            if (rz >= 0) return null; // behind camera
+            if (rz >= 0) return null;
 
             double fov = mc.options.getFov().getValue();
             double aspect = (double) mc.getWindow().getScaledWidth() / mc.getWindow().getScaledHeight();

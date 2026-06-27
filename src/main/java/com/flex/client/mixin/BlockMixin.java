@@ -1,5 +1,6 @@
 package com.flex.client.mixin;
 
+import com.flex.client.module.Module;
 import com.flex.client.module.ModuleManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -12,73 +13,72 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+/**
+ * BlockMixin — shouldDrawSide ile Xray blok filtresi.
+ * Aktif Xray modülünün seçili cevher ayarlarını (showDiamond, showGold…) okur.
+ */
 @Mixin(net.minecraft.block.Block.class)
 public class BlockMixin {
 
-    // ============================================================
-    //  XRAY - Gosterilecek bloklar (tier'a gore gruplandı)
-    // ============================================================
+    // ── Cevher grup kontrolcüleri ────────────────────────────────
 
-    // TIER 1 - En degerli (her zaman goster)
     private static boolean isDiamond(Block b) {
-        return b == Blocks.DIAMOND_ORE
-            || b == Blocks.DEEPSLATE_DIAMOND_ORE;
+        return b == Blocks.DIAMOND_ORE || b == Blocks.DEEPSLATE_DIAMOND_ORE;
+    }
+    private static boolean isAncientDebris(Block b) {
+        return b == Blocks.ANCIENT_DEBRIS;
+    }
+    private static boolean isEmerald(Block b) {
+        return b == Blocks.EMERALD_ORE || b == Blocks.DEEPSLATE_EMERALD_ORE;
+    }
+    private static boolean isGold(Block b) {
+        return b == Blocks.GOLD_ORE || b == Blocks.DEEPSLATE_GOLD_ORE
+            || b == Blocks.NETHER_GOLD_ORE || b == Blocks.GILDED_BLACKSTONE;
+    }
+    private static boolean isIron(Block b) {
+        return b == Blocks.IRON_ORE || b == Blocks.DEEPSLATE_IRON_ORE;
+    }
+    private static boolean isLapis(Block b) {
+        return b == Blocks.LAPIS_ORE || b == Blocks.DEEPSLATE_LAPIS_ORE;
+    }
+    private static boolean isRedstone(Block b) {
+        return b == Blocks.REDSTONE_ORE || b == Blocks.DEEPSLATE_REDSTONE_ORE;
+    }
+    private static boolean isCopper(Block b) {
+        return b == Blocks.COPPER_ORE || b == Blocks.DEEPSLATE_COPPER_ORE;
+    }
+    private static boolean isCoal(Block b) {
+        return b == Blocks.COAL_ORE || b == Blocks.DEEPSLATE_COAL_ORE;
+    }
+    private static boolean isChest(Block b) {
+        return b == Blocks.CHEST || b == Blocks.TRAPPED_CHEST
+            || b == Blocks.ENDER_CHEST || b == Blocks.BARREL;
+    }
+    private static boolean isSpawner(Block b) {
+        return b == Blocks.SPAWNER;
     }
 
-    // TIER 2 - Cok degerli
-    private static boolean isTopTier(Block b) {
-        return b == Blocks.ANCIENT_DEBRIS          // Netherite ham maddesi
-            || b == Blocks.NETHER_GOLD_ORE         // Nether altin
-            || b == Blocks.GILDED_BLACKSTONE;      // Gilded blackstone
+    /**
+     * Module ayarlarına göre bu bloğun Xray'de gösterilip gösterilmeyeceğini belirler.
+     */
+    private static boolean isXrayVisible(Block b, Module xray) {
+        if (xray == null) return false;
+        if (isDiamond(b))      return xray.getSetting("showDiamond");
+        if (isAncientDebris(b))return xray.getSetting("showAncientDebris");
+        if (isEmerald(b))      return xray.getSetting("showEmerald");
+        if (isGold(b))         return xray.getSetting("showGold");
+        if (isIron(b))         return xray.getSetting("showIron");
+        if (isLapis(b))        return xray.getSetting("showLapis");
+        if (isRedstone(b))     return xray.getSetting("showRedstone");
+        if (isCopper(b))       return xray.getSetting("showCopper");
+        if (isCoal(b))         return xray.getSetting("showCoal");
+        if (isChest(b))        return xray.getSetting("showChests");
+        if (isSpawner(b))      return xray.getSetting("showSpawner");
+        return false;
     }
 
-    // TIER 3 - Degerli
-    private static boolean isMidTier(Block b) {
-        return b == Blocks.GOLD_ORE
-            || b == Blocks.DEEPSLATE_GOLD_ORE
-            || b == Blocks.EMERALD_ORE
-            || b == Blocks.DEEPSLATE_EMERALD_ORE
-            || b == Blocks.REDSTONE_ORE
-            || b == Blocks.DEEPSLATE_REDSTONE_ORE;
-    }
+    // ── shouldDrawSide inject ────────────────────────────────────
 
-    // TIER 4 - Yaygin ama kullanisli
-    private static boolean isLowTier(Block b) {
-        return b == Blocks.IRON_ORE
-            || b == Blocks.DEEPSLATE_IRON_ORE
-            || b == Blocks.COPPER_ORE
-            || b == Blocks.DEEPSLATE_COPPER_ORE
-            || b == Blocks.LAPIS_ORE
-            || b == Blocks.DEEPSLATE_LAPIS_ORE
-            || b == Blocks.COAL_ORE
-            || b == Blocks.DEEPSLATE_COAL_ORE;
-    }
-
-    // TIER 5 - Yapi / ozel bloklar
-    private static boolean isStructure(Block b) {
-        return b == Blocks.CHEST
-            || b == Blocks.TRAPPED_CHEST
-            || b == Blocks.ENDER_CHEST
-            || b == Blocks.BARREL
-            || b == Blocks.SPAWNER              // Mob spawner
-            || b == Blocks.OBSIDIAN
-            || b == Blocks.CRYING_OBSIDIAN
-            || b == Blocks.BEDROCK;             // Bedrock seviyesi tespiti
-            // NOT: TRIAL_SPAWNER ve VAULT 1.21+ icin, bu proje 1.20.1
-    }
-
-    // Tum gosterilecek bloklar
-    private static boolean isXrayVisible(Block b) {
-        return isDiamond(b)
-            || isTopTier(b)
-            || isMidTier(b)
-            || isLowTier(b)
-            || isStructure(b);
-    }
-
-    // ============================================================
-    //  MIXIN - shouldDrawSide inject
-    // ============================================================
     @Inject(at = @At("HEAD"), method = "shouldDrawSide", cancellable = true)
     private static void onShouldDrawSide(
             BlockState state,
@@ -88,21 +88,16 @@ public class BlockMixin {
             BlockPos otherPos,
             CallbackInfoReturnable<Boolean> cir) {
 
-        // Null guvenligi - PojavLauncher'da world yuklenmeden tetiklenebilir
         if (state == null || world == null || pos == null) return;
+        if (!ModuleManager.isEnabled("Xray")) return;
 
-        if (ModuleManager.isEnabled("Xray")) {
-            Block block = state.getBlock();
+        Module xray = ModuleManager.get("Xray");
+        Block block = state.getBlock();
 
-            if (isXrayVisible(block)) {
-                // Bu blok degerli → her zaman ciz (duvardan gozuk)
-                cir.setReturnValue(true);
-            } else {
-                // Diger her sey → gizle (saydam yap)
-                cir.setReturnValue(false);
-            }
+        if (isXrayVisible(block, xray)) {
+            cir.setReturnValue(true);  // Hedef blok — her zaman çiz
+        } else {
+            cir.setReturnValue(false); // Diğerleri — gizle (saydam)
         }
-        // Xray kapali ise hicbir seye dokunma, vanilla davranis devam eder
     }
 }
-
