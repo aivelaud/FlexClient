@@ -20,7 +20,9 @@
       "NoFallMixin",
       "PlayerMovePacketAccessor",
       "ChamsEntityMixin",
-      "NoHurtCamMixin"
+      "NoHurtCamMixin",
+      "XRayModule",
+      "SpeedModule"
     ],
     "injectors": {
       "defaultRequire": 0
