@@ -15,10 +15,14 @@
       "SpeedMineMixin",
       "NoRenderMixin",
       "CrystalAuraMixin",
-      "EntityNoClipAccessor"
+      "EntityNoClipAccessor",
+      "FullbrightMixin",
+      "NoFallMixin",
+      "PlayerMovePacketAccessor",
+      "ChamsEntityMixin",
+      "NoHurtCamMixin"
     ],
     "injectors": {
       "defaultRequire": 0
     }
   }
-  
