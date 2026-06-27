@@ -465,7 +465,7 @@ public class ClickGui extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double hScr, double vScr) {
+    public boolean mouseScrolled(double mx, double my, double vScr) {
         listScrollY = Math.max(0, Math.min(maxScrollY, listScrollY - (int)(vScr * 14)));
         return true;
     }
