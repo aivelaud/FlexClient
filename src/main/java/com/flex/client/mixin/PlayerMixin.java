@@ -19,8 +19,9 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import com.flex.client.CrashGuard;
+import com.flex.client.mixin.EntityNoClipAccessor;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -30,8 +31,6 @@ import java.util.stream.Collectors;
 
 @Mixin(ClientPlayerEntity.class)
 public abstract class PlayerMixin {
-
-    @Shadow protected boolean noClip;
 
     private int  killAuraCooldown  = 0;
     private int  autoEatCooldown   = 0;
@@ -45,6 +44,7 @@ public abstract class PlayerMixin {
     private void onTick(CallbackInfo ci) {
         ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
         if (player == null || player.getWorld() == null || player.networkHandler == null) return;
+        CrashGuard.tick(); // Kirli dosyayı güncelle, çökme koruması aktif
 
         // ── FLY ─────────────────────────────────────────────────────
         if (ModuleManager.isEnabled("Fly")) {
@@ -71,8 +71,8 @@ public abstract class PlayerMixin {
                 ? ModuleManager.get("Speed").getWalkSpeed() : 0.1f);
 
         // ── CLIP / PHASE ─────────────────────────────────────────────
-          // noClip=true: tüm blok çarpışmaları devre dışı → kapılar/bloklar içinden geçilebilir
-          noClip = ModuleManager.isEnabled("Clip");
+          // Clip/Phase: EntityNoClipAccessor ile güvenli erişim
+          ((EntityNoClipAccessor)(Object)this).setNoClip(ModuleManager.isEnabled("Clip"));
 
           // ── STEP ──────────────────────────────────────────────────────
         StepHeightAccessor sa = (StepHeightAccessor)(Object)this;
