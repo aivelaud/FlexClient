@@ -15,7 +15,8 @@
     "AntiHungerMixin",
     "ReachMixin",
     "SpeedMineMixin",
-    "NoRenderMixin"
+    "NoRenderMixin",
+    "CrystalAuraMixin"
   ],
   "injectors": {
     "defaultRequire": 1
