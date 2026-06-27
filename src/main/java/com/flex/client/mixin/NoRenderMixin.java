@@ -10,13 +10,18 @@ package com.flex.client.mixin;
 
   /**
    * NoRenderMixin — MC 1.20.1 uyumlu.
-   * Tam imza: renderFireOverlay(FLnet/minecraft/client/util/math/MatrixStack;)V
+   *
+   * NOT: method = "renderFireOverlay" yeterlidir.
+   * Full descriptor (FLnet/.../MatrixStack;)V yazildiginda Mixin AP,
+   * icindeki Yarn tiplerini refmap'e isleme sirasinda cozemedigi icin
+   * InvalidInjectionException atar. Sadece metot adi kullanilinca
+   * Loom refmap'i otomatik uretir.
    */
   @Mixin(GameRenderer.class)
   public abstract class NoRenderMixin {
 
       @Inject(
-          method = "renderFireOverlay(FLnet/minecraft/client/util/math/MatrixStack;)V",
+          method = "renderFireOverlay",
           at = @At("HEAD"),
           cancellable = true
       )
