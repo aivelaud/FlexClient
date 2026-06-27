@@ -8,14 +8,15 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.*;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
-import com.flex.client.mixin.WorldBlockEntityAccessor;
-import net.minecraft.world.World;
+import net.minecraft.world.chunk.ChunkStatus;
+import net.minecraft.world.chunk.WorldChunk;
 import org.joml.Matrix4f;
 
 import java.util.List;
@@ -84,7 +85,6 @@ public class ESPRenderer {
                     if ("Box".equals(mode) || "Outline".equals(mode)) {
                         RenderUtils.drawBoxOutline(matrices, box, color, 1.5f);
                         if ("Box".equals(mode)) {
-                            // semi-transparent fill
                             int fillColor = (color & 0x00FFFFFF) | 0x22000000;
                             RenderUtils.drawBoxFilled(matrices, box, fillColor);
                         }
@@ -105,7 +105,7 @@ public class ESPRenderer {
                     if ("Crosshair".equals(origin)) {
                         tracerOrigin = forward.multiply(0.1);
                     } else {
-                        tracerOrigin = Vec3d.ZERO.add(0, 0, 0); // Eyes = cam center
+                        tracerOrigin = Vec3d.ZERO.add(0, 0, 0);
                     }
                     int tc = isPlayer ? COLOR_TRACER_P : COLOR_MOB;
                     RenderUtils.drawTracer(matrices, tracerOrigin, entityCenter, tc, 1.0f);
@@ -117,34 +117,42 @@ public class ESPRenderer {
 
         // ── STORAGE ESP ───────────────────────────────────────────
         if (storageEnabled && storageMod != null) {
-            World world = mc.world;
-            for (BlockEntity be : ((WorldBlockEntityAccessor) world).getBlockEntities()) {
-                boolean show = false;
-                int color = COLOR_CHEST;
+            ClientWorld clientWorld = mc.world;
+            int playerCX = (int) mc.player.getX() >> 4;
+            int playerCZ = (int) mc.player.getZ() >> 4;
+            int radius = 8;
+            for (int cx = playerCX - radius; cx <= playerCX + radius; cx++) {
+                for (int cz = playerCZ - radius; cz <= playerCZ + radius; cz++) {
+                    WorldChunk chunk = clientWorld.getChunk(cx, cz, ChunkStatus.FULL, false);
+                    if (chunk == null) continue;
+                    for (BlockEntity be : chunk.getBlockEntities().values()) {
+                        boolean show = false;
+                        int color = COLOR_CHEST;
 
-                if (be instanceof ChestBlockEntity && storageMod.getSetting("chests")) {
-                    show = true; color = COLOR_CHEST;
-                } else if (be instanceof BarrelBlockEntity && storageMod.getSetting("barrels")) {
-                    show = true; color = COLOR_BARREL;
-                } else if (be instanceof ShulkerBoxBlockEntity && storageMod.getSetting("shulkers")) {
-                    show = true; color = COLOR_SHULKER;
-                } else if (be instanceof AbstractFurnaceBlockEntity && storageMod.getSetting("furnaces")) {
-                    show = true; color = COLOR_FURNACE;
-                } else if (be instanceof HopperBlockEntity && storageMod.getSetting("droppers")) {
-                    show = true; color = COLOR_BARREL;
-                }
+                        if (be instanceof ChestBlockEntity && storageMod.getSetting("chests")) {
+                            show = true; color = COLOR_CHEST;
+                        } else if (be instanceof BarrelBlockEntity && storageMod.getSetting("barrels")) {
+                            show = true; color = COLOR_BARREL;
+                        } else if (be instanceof ShulkerBoxBlockEntity && storageMod.getSetting("shulkers")) {
+                            show = true; color = COLOR_SHULKER;
+                        } else if (be instanceof AbstractFurnaceBlockEntity && storageMod.getSetting("furnaces")) {
+                            show = true; color = COLOR_FURNACE;
+                        } else if (be instanceof HopperBlockEntity && storageMod.getSetting("droppers")) {
+                            show = true; color = COLOR_BARREL;
+                        }
 
-                if (!show) continue;
-                Vec3d bePos = Vec3d.ofCenter(be.getPos());
-                Box beBox = new Box(bePos.x - 0.5, bePos.y - 0.5, bePos.z - 0.5,
-                                    bePos.x + 0.5, bePos.y + 0.5, bePos.z + 0.5)
-                        .offset(-camPos.x, -camPos.y, -camPos.z);
-                RenderUtils.drawBoxOutline(matrices, beBox, color, 1.5f);
+                        if (!show) continue;
+                        Vec3d bePos = Vec3d.ofCenter(be.getPos());
+                        Box beBox = new Box(bePos.x - 0.5, bePos.y - 0.5, bePos.z - 0.5,
+                                            bePos.x + 0.5, bePos.y + 0.5, bePos.z + 0.5)
+                                .offset(-camPos.x, -camPos.y, -camPos.z);
+                        RenderUtils.drawBoxOutline(matrices, beBox, color, 1.5f);
 
-                // Tracers to chests
-                if (tracersEnabled && tracerMod != null && tracerMod.getSetting("chests")) {
-                    Vec3d beCenter = bePos.subtract(camPos);
-                    RenderUtils.drawTracer(matrices, Vec3d.ZERO, beCenter, COLOR_TRACER_C, 0.8f);
+                        if (tracersEnabled && tracerMod != null && tracerMod.getSetting("chests")) {
+                            Vec3d beCenter = bePos.subtract(camPos);
+                            RenderUtils.drawTracer(matrices, Vec3d.ZERO, beCenter, COLOR_TRACER_C, 0.8f);
+                        }
+                    }
                 }
             }
         }
