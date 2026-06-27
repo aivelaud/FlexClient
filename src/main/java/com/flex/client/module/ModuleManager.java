@@ -43,6 +43,7 @@ public class ModuleManager {
         reg("HighJump",      "Movement", "Çok yüksek zıplamayı sağlar");
         reg("AntiAFK",       "Movement", "AFK atılmayı engeller");
         reg("FastLadder",    "Movement", "Merdivende çok hızlı tırmanma");
+          reg("Clip",          "Movement", "Bloklardan ve kilitli kapılardan geçmeyi sağlar");
 
         // ── PLAYER ──────────────────────────────────────────────────
         reg("AutoEat",       "Player",   "Açlık düşünce otomatik yemek yer");
