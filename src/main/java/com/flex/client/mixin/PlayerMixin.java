@@ -20,6 +20,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -29,6 +30,8 @@ import java.util.stream.Collectors;
 
 @Mixin(ClientPlayerEntity.class)
 public abstract class PlayerMixin {
+
+    @Shadow protected boolean noClip;
 
     private int  killAuraCooldown  = 0;
     private int  autoEatCooldown   = 0;
@@ -67,7 +70,11 @@ public abstract class PlayerMixin {
             player.getAbilities().setWalkSpeed(ModuleManager.isEnabled("Speed")
                 ? ModuleManager.get("Speed").getWalkSpeed() : 0.1f);
 
-        // ── STEP ──────────────────────────────────────────────────────
+        // ── CLIP / PHASE ─────────────────────────────────────────────
+          // noClip=true: tüm blok çarpışmaları devre dışı → kapılar/bloklar içinden geçilebilir
+          noClip = ModuleManager.isEnabled("Clip");
+
+          // ── STEP ──────────────────────────────────────────────────────
         StepHeightAccessor sa = (StepHeightAccessor)(Object)this;
         sa.setStepHeight(ModuleManager.isEnabled("Step")
             ? ModuleManager.get("Step").getFloatSetting("height", 2.5f) : 0.6f);
