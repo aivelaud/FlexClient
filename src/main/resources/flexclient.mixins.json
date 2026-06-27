@@ -14,7 +14,8 @@
       "ReachMixin",
       "SpeedMineMixin",
       "NoRenderMixin",
-      "CrystalAuraMixin"
+      "CrystalAuraMixin",
+      "EntityNoClipAccessor"
     ],
     "injectors": {
       "defaultRequire": 0
