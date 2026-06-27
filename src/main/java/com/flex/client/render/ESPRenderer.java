@@ -123,8 +123,8 @@ public class ESPRenderer {
             int radius = 8;
             for (int cx = playerCX - radius; cx <= playerCX + radius; cx++) {
                 for (int cz = playerCZ - radius; cz <= playerCZ + radius; cz++) {
-                    WorldChunk chunk = clientWorld.getChunk(cx, cz, ChunkStatus.FULL, false);
-                    if (chunk == null) continue;
+                    net.minecraft.world.chunk.Chunk rawChunk = clientWorld.getChunk(cx, cz, ChunkStatus.FULL, false);
+                    if (!(rawChunk instanceof WorldChunk chunk)) continue;
                     for (BlockEntity be : chunk.getBlockEntities().values()) {
                         boolean show = false;
                         int color = COLOR_CHEST;
