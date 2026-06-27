@@ -44,6 +44,7 @@ public class ModuleManager {
         reg("AntiAFK",       "Movement", "AFK atılmayı engeller");
         reg("FastLadder",    "Movement", "Merdivende çok hızlı tırmanma");
           reg("Clip",          "Movement", "Bloklardan ve kilitli kapılardan geçmeyi sağlar");
+          reg("VClip",         "Movement", "Dikey eksen boyunca bloklardan geçerir");
 
         // ── PLAYER ──────────────────────────────────────────────────
         reg("AutoEat",       "Player",   "Açlık düşünce otomatik yemek yer");
