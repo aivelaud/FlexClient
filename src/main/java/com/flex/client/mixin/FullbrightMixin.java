@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class FullbrightMixin {
 
     @Shadow private boolean dirty;
-    @Shadow private net.minecraft.client.texture.DynamicTexture texture;
+    @Shadow private net.minecraft.client.texture.NativeImageBackedTexture texture;
 
     @Inject(method = "update", at = @At("RETURN"))
     private void onUpdate(float delta, CallbackInfo ci) {

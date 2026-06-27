@@ -29,7 +29,6 @@ public class NoHurtCamMixin {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player != null) {
             mc.player.hurtTime = 0;
-            mc.player.hurtPitch = 0;
         }
     }
 }

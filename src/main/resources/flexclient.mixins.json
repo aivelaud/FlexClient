@@ -20,7 +20,8 @@
       "NoFallMixin",
       "PlayerMovePacketAccessor",
       "ChamsEntityMixin",
-      "NoHurtCamMixin"
+      "NoHurtCamMixin",
+      "WorldBlockEntityAccessor"
     ],
     "injectors": {
       "defaultRequire": 0

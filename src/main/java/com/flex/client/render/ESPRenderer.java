@@ -14,6 +14,7 @@ import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
+import com.flex.client.mixin.WorldBlockEntityAccessor;
 import net.minecraft.world.World;
 import org.joml.Matrix4f;
 
@@ -117,7 +118,7 @@ public class ESPRenderer {
         // ── STORAGE ESP ───────────────────────────────────────────
         if (storageEnabled && storageMod != null) {
             World world = mc.world;
-            for (BlockEntity be : world.blockEntities) {
+            for (BlockEntity be : ((WorldBlockEntityAccessor) world).getBlockEntities()) {
                 boolean show = false;
                 int color = COLOR_CHEST;
 

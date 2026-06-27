@@ -515,7 +515,7 @@ public abstract class PlayerMixin {
                             handler.syncId, handler.getRevision(), i, 0,
                             SlotActionType.QUICK_MOVE,
                             ItemStack.EMPTY,
-                            new java.util.HashMap<>()
+                            new it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap<>()
                         ));
                         break; // take one per tick
                     }
