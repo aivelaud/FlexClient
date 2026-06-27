@@ -107,5 +107,20 @@ public class ModuleManager {
     }
 
     public static void enableAll()  { for (Module m : modules) m.setEnabled(true); }
-    public static void disableAll() { for (Module m : modules) m.setEnabled(false); }
-}
+      public static void disableAll() { for (Module m : modules) m.setEnabled(false); }
+
+      /**
+       * CrashGuard tarafından çağrılır — modülü devre dışı bırakır.
+       */
+      public static void forceDisable(String name) {
+          Module m = get(name);
+          if (m != null) m.setEnabled(false);
+      }
+
+      /** Şu an aktif (enabled) modüllerin adlarını döndürür. */
+      public static List<String> getEnabledNames() {
+          List<String> res = new ArrayList<>();
+          for (Module m : modules) if (m.isEnabled()) res.add(m.getName());
+          return res;
+      }
+  }
