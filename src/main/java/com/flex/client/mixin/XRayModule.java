@@ -73,6 +73,9 @@ public class XRayModule {
         int minY  = mc.world.getBottomY();
         int maxY  = mc.world.getTopY();
 
+        // V3: Chunk yüklenince AntiXrayFilter contamination cache'ini temizle
+        AntiXrayFilter.onChunkLoad(new net.minecraft.util.math.ChunkPos(cx, cz));
+
         // Chunk içindeki tüm hedef cevherleri topla ve unverified olarak işaretle
         List<BlockPos> chunkOres = new ArrayList<>();
         for (int lx = 0; lx < 16; lx++) {

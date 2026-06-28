@@ -139,15 +139,18 @@ public class ChunkOreScanner {
             WorldChunk chunk = world.getChunk(cp.x, cp.z);
             if (chunk == null) return;
 
+            // Adım 0: Chunk yüklenince önceki contamination verilerini temizle
+            AntiXrayFilter.onChunkLoad(cp);
+
             // Adım 1: Ham cevher taraması (tüm hedef bloklar)
             Map<Block, List<BlockPos>> rawOres = rawScanChunk(chunk, cp, world);
 
-            // Adım 1b: ChunkOreCounter — ham sayıları kaydet (Katman 3 için gerekli)
+            // Adım 1b: AntiXrayFilter — ham sayıları kaydet ve chunk contamination hesapla
             Map<Block, Integer> rawCounts = new HashMap<>();
             rawOres.forEach((b, positions) -> rawCounts.put(b, positions.size()));
-            ChunkOreCounter.registerChunk(cp, rawCounts);
+            AntiXrayFilter.registerChunkCounts(cp, rawCounts);
 
-            // Adım 2: AntiXrayFilter — katmanlı skor filtresi (YENİ)
+            // Adım 2: AntiXrayFilter — 5 katmanlı whitelist filtresi (V3)
             // Komşu analizi + Y seviyesi + ışık + izolasyon + paket doğrulama
             Map<Block, List<BlockPos>> filteredOres = AntiXrayFilter.filterAll(world, rawOres);
 
@@ -306,8 +309,7 @@ public class ChunkOreScanner {
         scanCache.remove(key);
         AntiXrayBypass.invalidateChunk(cp);
         OreVeinAnalyzer.invalidate(key);
-        AntiXrayFilter.invalidateChunk(cp.x, cp.z); // AntiXrayFilter skor cache'i
-        ChunkOreCounter.clearChunk(cp);              // ChunkOreCounter sayaçları
+        AntiXrayFilter.onChunkUnload(cp); // Contamination + verification cache
     }
 
     /**
@@ -328,8 +330,7 @@ public class ChunkOreScanner {
         inProgress.clear();
         AntiXrayBypass.clearCache();
         OreVeinAnalyzer.clearAll();
-        AntiXrayFilter.clearAll(); // AntiXrayFilter + BlockVerificationCache
-        ChunkOreCounter.clearAll(); // ChunkOreCounter sayaçları
+        AntiXrayFilter.clearAll(); // Contamination + verification cache
     }
 
     // ── İstatistik ───────────────────────────────────────────────────────────
