@@ -142,6 +142,11 @@ public class ChunkOreScanner {
             // Adım 1: Ham cevher taraması (tüm hedef bloklar)
             Map<Block, List<BlockPos>> rawOres = rawScanChunk(chunk, cp, world);
 
+            // Adım 1b: ChunkOreCounter — ham sayıları kaydet (Katman 3 için gerekli)
+            Map<Block, Integer> rawCounts = new HashMap<>();
+            rawOres.forEach((b, positions) -> rawCounts.put(b, positions.size()));
+            ChunkOreCounter.registerChunk(cp, rawCounts);
+
             // Adım 2: AntiXrayFilter — katmanlı skor filtresi (YENİ)
             // Komşu analizi + Y seviyesi + ışık + izolasyon + paket doğrulama
             Map<Block, List<BlockPos>> filteredOres = AntiXrayFilter.filterAll(world, rawOres);
@@ -302,6 +307,7 @@ public class ChunkOreScanner {
         AntiXrayBypass.invalidateChunk(cp);
         OreVeinAnalyzer.invalidate(key);
         AntiXrayFilter.invalidateChunk(cp.x, cp.z); // AntiXrayFilter skor cache'i
+        ChunkOreCounter.clearChunk(cp);              // ChunkOreCounter sayaçları
     }
 
     /**
@@ -323,6 +329,7 @@ public class ChunkOreScanner {
         AntiXrayBypass.clearCache();
         OreVeinAnalyzer.clearAll();
         AntiXrayFilter.clearAll(); // AntiXrayFilter + BlockVerificationCache
+        ChunkOreCounter.clearAll(); // ChunkOreCounter sayaçları
     }
 
     // ── İstatistik ───────────────────────────────────────────────────────────
