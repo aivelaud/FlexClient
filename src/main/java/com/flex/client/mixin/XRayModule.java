@@ -241,41 +241,37 @@ public class XRayModule {
         SUSPECTED_FAKES.put(key, suspected);
     }
 
-    // ── Public Sorgu API ──────────────────────────────────────────────────────
+    // ── Dahili Yardımcı Metodlar (private — Mixin kuralı) ────────────────────
 
     /**
      * Verilen pozisyonun BFS analizine göre sahte aday olup olmadığını döner.
-     * AntiXrayFilter veya render sistemleri tarafından kullanılır.
      *
      * @param pos Sorgulanacak blok konumu
      * @return true → sahte aday (BFS hava bağlantısı yok)
      */
-    public static boolean isBfsSuspectedFake(BlockPos pos) {
+    private static boolean isBfsSuspectedFake(BlockPos pos) {
         long key = chunkKey(pos.getX() >> 4, pos.getZ() >> 4);
         Set<BlockPos> set = SUSPECTED_FAKES.get(key);
         return set != null && set.contains(pos);
     }
 
     /**
-     * Chunk boşaltıldığında BFS cache ve verification cache'i temizler.
+     * Chunk boşaltıldığında BFS cache'i temizler (dahili kullanım).
      *
      * @param cx Chunk X koordinatı
      * @param cz Chunk Z koordinatı
      */
-    public static void clearChunk(int cx, int cz) {
-        long key = chunkKey(cx, cz);
-        SUSPECTED_FAKES.remove(key);
-        AntiXrayFilter.invalidateChunk(cx, cz);
+    private static void clearChunkInternal(int cx, int cz) {
+        SUSPECTED_FAKES.remove(chunkKey(cx, cz));
     }
 
-    /** Tüm BFS cache'ini temizler. */
-    public static void clearAll() {
+    /** Tüm BFS cache'ini temizler (dahili kullanım). */
+    private static void clearAllInternal() {
         SUSPECTED_FAKES.clear();
-        AntiXrayFilter.clearAll();
     }
 
     /** Sahte aday sayısını döner (debug amaçlı). */
-    public static int getSuspectedCount(int cx, int cz) {
+    private static int getSuspectedCount(int cx, int cz) {
         Set<BlockPos> s = SUSPECTED_FAKES.get(chunkKey(cx, cz));
         return s == null ? 0 : s.size();
     }
