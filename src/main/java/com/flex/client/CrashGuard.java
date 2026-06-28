@@ -100,12 +100,20 @@ package com.flex.client;
           writeDirtyFile();
           try {
               MinecraftClient mc = MinecraftClient.getInstance();
-              if (mc != null && mc.player != null) {
+              if (mc == null) return;
+              // Anında aksiyon çubuğu mesajı (oyunu durdurmadan)
+              if (mc.player != null) {
                   mc.player.sendMessage(Text.literal(
-                      "§4[FlexClient] §c" + moduleName +
-                      " §fhata verdi ve devre dışı bırakıldı."), false);
-                  mc.player.sendMessage(Text.literal(
-                      "§7  → GUI'den yeniden deneyebilirsiniz."), false);
+                      "\u00a74\u26A0 \u00a7c" + moduleName +
+                      " \u00a7fdevre d\u0131\u015f\u0131 b\u0131rak\u0131ld\u0131! \u00a77(hata)"), true);
+              }
+              // Aninda uyari ekrani — oyun icindeyken ve baska ekran acik degilken
+              if (mc.currentScreen == null && mc.world != null) {
+                  mc.execute(() -> {
+                      try {
+                          mc.setScreen(new com.flex.client.gui.CrashGuardScreen());
+                      } catch (Exception ignored2) {}
+                  });
               }
           } catch (Exception ignored) {}
       }

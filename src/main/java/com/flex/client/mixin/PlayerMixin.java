@@ -38,6 +38,7 @@ public abstract class PlayerMixin {
     private boolean longJumpReady  = false;
     private boolean sprintedThisTick = false;
     private final Random rng       = new Random();
+    private String flex$mod        = null;
 
     @Inject(at = @At("HEAD"), method = "tick()V")
     private void onTick(CallbackInfo ci) {
@@ -45,8 +46,10 @@ public abstract class PlayerMixin {
         if (player.getWorld() == null || player.networkHandler == null) return;
         CrashGuard.tick();
         MinecraftClient mc = MinecraftClient.getInstance();
+        try {
 
         // ── FLY ─────────────────────────────────────────────────────
+        flex$mod = "Fly";
         if (ModuleManager.isEnabled("Fly")) {
             Module fly = ModuleManager.get("Fly");
             String mode = fly.getStringSetting("mode", "Vanilla");
@@ -55,9 +58,7 @@ public abstract class PlayerMixin {
                 player.getAbilities().flying = true;
                 player.getAbilities().setFlySpeed(spd);
             } else if ("Packet".equals(mode)) {
-                // Packet fly: hızlı hareket + fake ground paketleri
                 player.getAbilities().flying = false;
-                Vec3d vel = player.getVelocity();
                 double yawRad = Math.toRadians(player.getYaw());
                 boolean moving = mc.options.forwardKey.isPressed() || mc.options.backKey.isPressed()
                               || mc.options.leftKey.isPressed() || mc.options.rightKey.isPressed();
@@ -69,10 +70,8 @@ public abstract class PlayerMixin {
                 } else {
                     player.setVelocity(0, mc.options.jumpKey.isPressed() ? spd : mc.options.sneakKey.isPressed() ? -spd : 0, 0);
                 }
-                // Fake on-ground packet every 4 ticks to bypass some anti-cheats
                 if (antiAfkTick % 4 == 0) {
-                    player.networkHandler.sendPacket(
-                        new PlayerMoveC2SPacket.OnGroundOnly(true));
+                    player.networkHandler.sendPacket(new PlayerMoveC2SPacket.OnGroundOnly(true));
                 }
             }
         } else if (player.getAbilities().flying && !player.getAbilities().allowFlying) {
@@ -81,39 +80,30 @@ public abstract class PlayerMixin {
         }
 
         // ── SPEED ────────────────────────────────────────────────────
+        flex$mod = "Speed";
         if (ModuleManager.isEnabled("Speed") && !ModuleManager.isEnabled("Fly")) {
             Module speed = ModuleManager.get("Speed");
             String sMode = speed.getStringSetting("mode", "Strafe");
             float spd = speed.getFloatSetting("speed", 0.35f);
             player.setSprinting(true);
-
             if ("Strafe".equals(sMode) && player.isOnGround()) {
-                // Strafe: doğrudan velocity ayarla
                 double yawRad = Math.toRadians(player.getYaw());
                 boolean moving = mc.options.forwardKey.isPressed() || mc.options.backKey.isPressed()
                               || mc.options.leftKey.isPressed() || mc.options.rightKey.isPressed();
                 if (moving) {
-                    player.setVelocity(
-                        -Math.sin(yawRad) * spd,
-                        player.getVelocity().y,
-                         Math.cos(yawRad) * spd
-                    );
+                    player.setVelocity(-Math.sin(yawRad) * spd, player.getVelocity().y, Math.cos(yawRad) * spd);
                 }
             } else if ("YPort".equals(sMode)) {
-                // YPort: sunucu bypass - yerde gibi göster, hız ekle
                 double yawRad = Math.toRadians(player.getYaw());
                 player.setVelocity(
                     -Math.sin(yawRad) * spd,
                     player.isOnGround() ? 0.42 : player.getVelocity().y,
-                     Math.cos(yawRad) * spd
-                );
+                     Math.cos(yawRad) * spd);
                 if (antiAfkTick % 2 == 0) {
-                    player.networkHandler.sendPacket(
-                        new PlayerMoveC2SPacket.PositionAndOnGround(
-                            player.getX(), player.getY(), player.getZ(), true));
+                    player.networkHandler.sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
+                        player.getX(), player.getY(), player.getZ(), true));
                 }
             } else if ("Ground".equals(sMode)) {
-                // Ground: abilities hızını ayarla
                 player.getAbilities().setWalkSpeed(spd);
             }
         } else if (!ModuleManager.isEnabled("Speed")) {
@@ -121,56 +111,61 @@ public abstract class PlayerMixin {
         }
 
         // ── SPRINT ───────────────────────────────────────────────────
+        flex$mod = "Sprint";
         if (ModuleManager.isEnabled("Sprint") && !player.isSneaking()) {
             player.setSprinting(true);
         }
 
         // ── NO FALL ──────────────────────────────────────────────────
-        // Packet interception is handled by NoFallMixin
-        // Also clear fall distance client-side as backup
+        flex$mod = "NoFall";
         if (ModuleManager.isEnabled("NoFall")) {
             player.fallDistance = 0f;
         }
 
         // ── SAFE WALK ────────────────────────────────────────────────
+        flex$mod = "SafeWalk";
         if (ModuleManager.isEnabled("SafeWalk")) player.setSneaking(true);
 
         // ── NO SLOW ──────────────────────────────────────────────────
+        flex$mod = "NoSlow";
         if (ModuleManager.isEnabled("NoSlow") && player.isUsingItem()) {
             player.getAbilities().setWalkSpeed(ModuleManager.isEnabled("Speed")
                 ? ModuleManager.get("Speed").getFloatSetting("speed", 0.35f) : 0.1f);
         }
 
         // ── CLIP (NoClip / Phase) ────────────────────────────────────
+        flex$mod = "Clip";
         ((EntityNoClipAccessor)(Object)this).setNoClip(ModuleManager.isEnabled("Clip"));
 
         // ── STEP ──────────────────────────────────────────────────────
+        flex$mod = "Step";
         StepHeightAccessor sa = (StepHeightAccessor)(Object)this;
         sa.setStepHeight(ModuleManager.isEnabled("Step")
             ? ModuleManager.get("Step").getFloatSetting("height", 2.5f) : 0.6f);
 
         // ── VCLIP ─────────────────────────────────────────────────────
+        flex$mod = "VClip";
         if (ModuleManager.isEnabled("VClip")) {
             Module vc = ModuleManager.get("VClip");
             float dist = vc.getFloatSetting("distance", 5.0f);
             boolean up = vc.getSetting("up");
             double newY = player.getY() + (up ? dist : -dist);
             player.networkHandler.sendPacket(
-                new PlayerMoveC2SPacket.PositionAndOnGround(
-                    player.getX(), newY, player.getZ(), false));
-            player.refreshPositionAndAngles(player.getX(), newY, player.getZ(),
-                player.getYaw(), player.getPitch());
-            ModuleManager.get("VClip").setSetting("active", false); // one-shot
+                new PlayerMoveC2SPacket.PositionAndOnGround(player.getX(), newY, player.getZ(), false));
+            player.refreshPositionAndAngles(player.getX(), newY, player.getZ(), player.getYaw(), player.getPitch());
+            ModuleManager.get("VClip").setSetting("active", false);
             ModuleManager.get("VClip").setEnabled(false);
         }
 
         // ── BUNNY HOP ────────────────────────────────────────────────
+        flex$mod = "BunnyHop";
         if (ModuleManager.isEnabled("BunnyHop") && player.isOnGround()) {
             player.addVelocity(0, 0.42 + ModuleManager.get("BunnyHop").getFloatSetting("boost", 0.03f), 0);
             player.setSprinting(true);
         }
 
         // ── LONG JUMP ────────────────────────────────────────────────
+        flex$mod = "LongJump";
         if (ModuleManager.isEnabled("LongJump")) {
             if (player.isOnGround()) longJumpReady = true;
             if (longJumpReady && !player.isOnGround() && wasOnGround) {
@@ -183,6 +178,7 @@ public abstract class PlayerMixin {
         wasOnGround = player.isOnGround();
 
         // ── SPIDER ───────────────────────────────────────────────────
+        flex$mod = "Spider";
         if (ModuleManager.isEnabled("Spider") && !player.isOnGround()) {
             float spd = ModuleManager.get("Spider").getFloatSetting("speed", 0.3f);
             if (player.horizontalCollision) {
@@ -191,6 +187,7 @@ public abstract class PlayerMixin {
         }
 
         // ── HIGH JUMP ────────────────────────────────────────────────
+        flex$mod = "HighJump";
         if (ModuleManager.isEnabled("HighJump") && player.isOnGround()) {
             float boost = ModuleManager.get("HighJump").getFloatSetting("boost", 0.5f);
             if (mc.options.jumpKey.isPressed()) {
@@ -199,15 +196,15 @@ public abstract class PlayerMixin {
         }
 
         // ── ANTI VOID ────────────────────────────────────────────────
+        flex$mod = "AntiVoid";
         if (ModuleManager.isEnabled("AntiVoid")) {
             Module av = ModuleManager.get("AntiVoid");
             float safeY = av.getFloatSetting("safeY", 0f);
             if (player.getY() < safeY + 5 && player.getVelocity().y < -0.5) {
                 if (av.getSetting("slowFall")) {
                     player.setVelocity(player.getVelocity().x, -0.1, player.getVelocity().z);
-                    player.networkHandler.sendPacket(
-                        new PlayerMoveC2SPacket.PositionAndOnGround(
-                            player.getX(), player.getY(), player.getZ(), true));
+                    player.networkHandler.sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
+                        player.getX(), player.getY(), player.getZ(), true));
                 } else {
                     player.setVelocity(player.getVelocity().x, 0, player.getVelocity().z);
                 }
@@ -215,6 +212,7 @@ public abstract class PlayerMixin {
         }
 
         // ── PARKOUR ──────────────────────────────────────────────────
+        flex$mod = "Parkour";
         if (ModuleManager.isEnabled("Parkour") && player.isOnGround()) {
             BlockPos front = player.getBlockPos().offset(player.getHorizontalFacing()).down();
             if (player.getWorld().getBlockState(front).isAir()) {
@@ -223,6 +221,7 @@ public abstract class PlayerMixin {
         }
 
         // ── VELOCITY ─────────────────────────────────────────────────
+        flex$mod = "Velocity";
         if (ModuleManager.isEnabled("Velocity")) {
             Module vel = ModuleManager.get("Velocity");
             float h = vel.getFloatSetting("horizontal", 0.15f);
@@ -235,6 +234,7 @@ public abstract class PlayerMixin {
         }
 
         // ── ANTI KNOCKBACK ───────────────────────────────────────────
+        flex$mod = "AntiKnockback";
         if (ModuleManager.isEnabled("AntiKnockback")) {
             Vec3d playerVel = player.getVelocity();
             double hz = Math.sqrt(playerVel.x * playerVel.x + playerVel.z * playerVel.z);
@@ -245,7 +245,7 @@ public abstract class PlayerMixin {
         }
 
         // ── CRITICALS ────────────────────────────────────────────────
-        // Packet mode criticals — handled in KillAura before attack
+        flex$mod = "Criticals";
         if (ModuleManager.isEnabled("Criticals")) {
             String mode = ModuleManager.get("Criticals").getStringSetting("mode", "Packet");
             if ("Jump".equals(mode) && player.isOnGround() && !player.isTouchingWater() && killAuraCooldown == 0) {
@@ -254,15 +254,14 @@ public abstract class PlayerMixin {
         }
 
         // ── AIM ASSIST ───────────────────────────────────────────────
+        flex$mod = "AimAssist";
         if (ModuleManager.isEnabled("AimAssist")) {
             Module aa = ModuleManager.get("AimAssist");
             int range = aa.getIntSetting("range", 5);
             float aimSpeed = aa.getFloatSetting("speed", 3.0f);
             float fovAngle = aa.getFloatSetting("fovAngle", 90.0f);
-
             Entity nearest = null;
             double nearestDist = Double.MAX_VALUE;
-
             for (Entity e : player.getWorld().getOtherEntities(player, player.getBoundingBox().expand(range))) {
                 if (!(e instanceof LivingEntity le) || le.isDead()) continue;
                 boolean isP = e instanceof AbstractClientPlayerEntity;
@@ -271,8 +270,6 @@ public abstract class PlayerMixin {
                 if (isP && !aa.getSetting("hitPlayers")) continue;
                 if (isM && !aa.getSetting("hitMobs")) continue;
                 if (!isP && !isM && !isA) continue;
-
-                // FOV check
                 if (aa.getSetting("fov")) {
                     double dx = e.getX() - player.getX();
                     double dz = e.getZ() - player.getZ();
@@ -284,11 +281,9 @@ public abstract class PlayerMixin {
                     float pitchDiff = Math.abs(tPitch - player.getPitch());
                     if (yawDiff > fovAngle / 2 || pitchDiff > fovAngle / 2) continue;
                 }
-
                 double d = player.squaredDistanceTo(e);
                 if (d < nearestDist) { nearestDist = d; nearest = e; }
             }
-
             if (nearest != null) {
                 double dx = nearest.getX() - player.getX();
                 double dy = nearest.getEyeY() - player.getEyeY();
@@ -296,7 +291,6 @@ public abstract class PlayerMixin {
                 double hz = Math.sqrt(dx*dx + dz*dz);
                 float tYaw   = (float)(Math.toDegrees(Math.atan2(dz, dx)) - 90);
                 float tPitch = (float)(-Math.toDegrees(Math.atan2(dy, hz)));
-                // Smooth aim — Doomsday + Meteor hybrid: linear lerp with randomization
                 float yawDelta   = wrapAngle(tYaw - player.getYaw());
                 float pitchDelta = tPitch - player.getPitch();
                 float noise = 0.1f * (rng.nextFloat() - 0.5f);
@@ -306,13 +300,13 @@ public abstract class PlayerMixin {
         }
 
         // ── KILL AURA ─────────────────────────────────────────────────
+        flex$mod = "KillAura";
         if (killAuraCooldown > 0) killAuraCooldown--;
         if (ModuleManager.isEnabled("KillAura") && killAuraCooldown == 0) {
             Module ka = ModuleManager.get("KillAura");
             int range  = ka.getIntSetting("range", 5);
             int delay  = ka.getIntSetting("delay", 3);
             String kMode = ka.getStringSetting("mode", "Single");
-
             List<Entity> targets = player.getWorld()
                 .getOtherEntities(player, player.getBoundingBox().expand(range))
                 .stream()
@@ -327,11 +321,7 @@ public abstract class PlayerMixin {
                 })
                 .sorted(Comparator.comparingDouble(e -> player.squaredDistanceTo(e)))
                 .collect(Collectors.toList());
-
             if (!targets.isEmpty()) {
-                // Attack cooldown check — 1.20.1'de kritik için gerekli
-                float cooldown = player.getAttackCooldownProgress(0.5f);
-
                 List<Entity> toHit;
                 if ("Multi".equals(kMode)) {
                     toHit = targets;
@@ -342,9 +332,7 @@ public abstract class PlayerMixin {
                 } else {
                     toHit = Collections.singletonList(targets.get(0));
                 }
-
                 for (Entity target : toHit) {
-                    // Rotate to target
                     if (ka.getSetting("rotate")) {
                         double dx = target.getX() - player.getX();
                         double dy = target.getEyeY() - player.getEyeY();
@@ -357,8 +345,6 @@ public abstract class PlayerMixin {
                         player.networkHandler.sendPacket(
                             new PlayerMoveC2SPacket.LookAndOnGround(yaw, pitch, player.isOnGround()));
                     }
-
-                    // Criticals: Packet mode — send fake jump packets before attack
                     if (ModuleManager.isEnabled("Criticals")) {
                         String cMode = ModuleManager.get("Criticals").getStringSetting("mode", "Packet");
                         if (("Packet".equals(cMode) || "Always".equals(cMode))
@@ -374,8 +360,6 @@ public abstract class PlayerMixin {
                                 new PlayerMoveC2SPacket.PositionAndOnGround(px, py, pz, false));
                         }
                     }
-
-                    // Attack — mc.interactionManager works in both SP and MP
                     if (mc.interactionManager != null) {
                         mc.interactionManager.attackEntity(player, target);
                     } else {
@@ -389,6 +373,7 @@ public abstract class PlayerMixin {
         }
 
         // ── TRIGGER BOT ──────────────────────────────────────────────
+        flex$mod = "TriggerBot";
         if (ModuleManager.isEnabled("TriggerBot") && killAuraCooldown == 0) {
             Entity targeted = mc.targetedEntity;
             if (targeted instanceof LivingEntity le && !le.isDead()) {
@@ -400,11 +385,9 @@ public abstract class PlayerMixin {
                               || (isM && tb.getSetting("hitMobs"))
                               || (isA && tb.getSetting("hitAnimals"));
                 if (should) {
-                    // Criticals for TriggerBot too
                     if (ModuleManager.isEnabled("Criticals")) {
                         String cMode = ModuleManager.get("Criticals").getStringSetting("mode","Packet");
-                        if (("Packet".equals(cMode) || "Always".equals(cMode))
-                                && !player.isTouchingWater()) {
+                        if (("Packet".equals(cMode) || "Always".equals(cMode)) && !player.isTouchingWater()) {
                             double px=player.getX(), py=player.getY(), pz=player.getZ();
                             player.networkHandler.sendPacket(
                                 new PlayerMoveC2SPacket.PositionAndOnGround(px,py+0.0625,pz,false));
@@ -425,6 +408,7 @@ public abstract class PlayerMixin {
         }
 
         // ── AUTO WEAPON ──────────────────────────────────────────────
+        flex$mod = "AutoWeapon";
         if (ModuleManager.isEnabled("AutoWeapon") && killAuraCooldown == 0) {
             boolean prefSword = ModuleManager.get("AutoWeapon").getSetting("preferSword");
             for (int i = 0; i < 9; i++) {
@@ -435,6 +419,7 @@ public abstract class PlayerMixin {
         }
 
         // ── AUTO GAP ─────────────────────────────────────────────────
+        flex$mod = "AutoGap";
         if (ModuleManager.isEnabled("AutoGap") && autoEatCooldown == 0) {
             float thr = ModuleManager.get("AutoGap").getFloatSetting("threshold", 12f);
             if (player.getHealth() < thr) {
@@ -452,6 +437,7 @@ public abstract class PlayerMixin {
         }
 
         // ── AUTO EAT ─────────────────────────────────────────────────
+        flex$mod = "AutoEat";
         if (autoEatCooldown > 0) autoEatCooldown--;
         if (ModuleManager.isEnabled("AutoEat") && autoEatCooldown == 0) {
             int thr = ModuleManager.get("AutoEat").getIntSetting("threshold", 16);
@@ -470,6 +456,7 @@ public abstract class PlayerMixin {
         }
 
         // ── REGEN ────────────────────────────────────────────────────
+        flex$mod = "Regen";
         if (ModuleManager.isEnabled("Regen")) {
             float rate = ModuleManager.get("Regen").getFloatSetting("rate", 0.3f);
             if (player.getHealth() < player.getMaxHealth())
@@ -477,6 +464,7 @@ public abstract class PlayerMixin {
         }
 
         // ── AUTO TOTEM ───────────────────────────────────────────────
+        flex$mod = "AutoTotem";
         if (ModuleManager.isEnabled("AutoTotem")) {
             int thr = ModuleManager.get("AutoTotem").getIntSetting("threshold", 8);
             if (player.getHealth() <= thr && player.getInventory().offHand.get(0).getItem() != Items.TOTEM_OF_UNDYING) {
@@ -493,6 +481,7 @@ public abstract class PlayerMixin {
         }
 
         // ── AUTO LOG ─────────────────────────────────────────────────
+        flex$mod = "AutoLog";
         if (ModuleManager.isEnabled("AutoLog")) {
             float thr = ModuleManager.get("AutoLog").getFloatSetting("threshold", 6f);
             if (player.getHealth() <= thr) {
@@ -502,6 +491,7 @@ public abstract class PlayerMixin {
         }
 
         // ── CHEST STEALER ────────────────────────────────────────────
+        flex$mod = "ChestStealer";
         if (ModuleManager.isEnabled("ChestStealer") && mc.currentScreen instanceof net.minecraft.client.gui.screen.ingame.GenericContainerScreen gcScreen) {
             GenericContainerScreenHandler handler = gcScreen.getScreenHandler();
             Module cs = ModuleManager.get("ChestStealer");
@@ -510,22 +500,19 @@ public abstract class PlayerMixin {
                 for (int i = 0; i < handler.getRows() * 9; i++) {
                     ItemStack stack = handler.getSlot(i).getStack();
                     if (!stack.isEmpty()) {
-                        // Quick-move (shift+click) to take item
                         player.networkHandler.sendPacket(new ClickSlotC2SPacket(
                             handler.syncId, handler.getRevision(), i, 0,
                             SlotActionType.QUICK_MOVE,
                             ItemStack.EMPTY,
-                            new it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap<>()
-                        ));
-                        break; // take one per tick
+                            new it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap<>()));
+                        break;
                     }
                 }
             }
         }
 
         // ── FULLBRIGHT ───────────────────────────────────────────────
-        // Handled by FullbrightMixin for proper lightmap fix
-        // Backup: gamma option
+        flex$mod = "Fullbright";
         try {
             if (mc.options != null) {
                 if (ModuleManager.isEnabled("Fullbright")) {
@@ -537,6 +524,7 @@ public abstract class PlayerMixin {
         } catch (Exception ignored) {}
 
         // ── NUKER ────────────────────────────────────────────────────
+        flex$mod = "Nuker";
         if (ModuleManager.isEnabled("Nuker")) {
             int r = ModuleManager.get("Nuker").getIntSetting("range", 3);
             BlockPos center = player.getBlockPos();
@@ -554,6 +542,7 @@ public abstract class PlayerMixin {
         }
 
         // ── SCAFFOLD ─────────────────────────────────────────────────
+        flex$mod = "Scaffold";
         if (ModuleManager.isEnabled("Scaffold") && !player.isOnGround()) {
             BlockPos below = player.getBlockPos().down();
             if (player.getWorld().getBlockState(below).isAir()) {
@@ -571,6 +560,7 @@ public abstract class PlayerMixin {
         }
 
         // ── AUTO TOOL ────────────────────────────────────────────────
+        flex$mod = "AutoTool";
         if (ModuleManager.isEnabled("AutoTool")) {
             if (mc.crosshairTarget instanceof BlockHitResult bhr) {
                 var bs = player.getWorld().getBlockState(bhr.getBlockPos());
@@ -584,6 +574,7 @@ public abstract class PlayerMixin {
         }
 
         // ── ANTI AFK ─────────────────────────────────────────────────
+        flex$mod = "AntiAFK";
         if (ModuleManager.isEnabled("AntiAFK")) {
             Module aa = ModuleManager.get("AntiAFK");
             int interval = aa.getIntSetting("interval", 60);
@@ -596,6 +587,11 @@ public abstract class PlayerMixin {
             }
         } else {
             antiAfkTick++;
+        }
+
+        } catch (Throwable flex$t) {
+            // Hangi modülün çöktüğünü biliyoruz — sadece onu devre dışı bırak
+            CrashGuard.onModuleCrash(flex$mod != null ? flex$mod : "Unknown", flex$t);
         }
     }
 
