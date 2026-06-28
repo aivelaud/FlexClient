@@ -152,19 +152,19 @@ public class XRayModule {
      * Verilen pozisyonun sahte blok adayı olup olmadığını sorgular.
      * XRay render sistemi bu metodu kullanarak sahte taşları vurgulayabilir.
      */
-    public static boolean isSuspectedFake(BlockPos pos) {
+    private static boolean isSuspectedFake(BlockPos pos) {
         long key = chunkKey(pos.getX() >> 4, pos.getZ() >> 4);
         Set<BlockPos> set = SUSPECTED_FAKES.get(key);
         return set != null && set.contains(pos);
     }
 
     /** Chunk boşaltıldığında önbelleği temizler (memory leak önlemi). */
-    public static void clearChunk(int cx, int cz) {
+    private static void clearChunk(int cx, int cz) {
         SUSPECTED_FAKES.remove(chunkKey(cx, cz));
     }
 
     /** Sahte aday sayısını döner (debug). */
-    public static int getSuspectedCount(int cx, int cz) {
+    private static int getSuspectedCount(int cx, int cz) {
         Set<BlockPos> s = SUSPECTED_FAKES.get(chunkKey(cx, cz));
         return s == null ? 0 : s.size();
     }
