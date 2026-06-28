@@ -1,11 +1,11 @@
 package com.flex.client.xray;
 
+import com.flex.client.mixin.XRayModule;
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkSection;
 import net.minecraft.world.chunk.WorldChunk;
 
@@ -17,23 +17,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  * FlexClient Ultra Xray — Asenkron Chunk Ore Tarayıcı
  *
  * Tüm yüklü chunk'ları arka planda tarar, cevher pozisyonlarını cache'ler.
- * Performans için:
+ *
+ * Anti-xray bypass entegrasyonu (katmanlı):
+ *  1. AntiXrayBypass  — İstatistiksel + damar analizi (mevcut sistem)
+ *  2. AntiXrayFilter  — Komşu/ışık/Y/izolasyon/paket skor sistemi (yeni sistem)
+ *  3. XRayModule BFS  — Hava bağlantısı analizi (mixin)
+ *
+ * Performans:
  *  - Asenkron tarama (ana thread bloklanmaz)
- *  - Chunk başına bir kez tara, sonuç cache'le
+ *  - Chunk başına bir kez tara, sonuç 60 sn cache'le
  *  - Oyuncu hareket ettikçe önce yakın chunk'ları tara
  *  - Boşaltılan chunk'ların cache'ini temizle
- *  - Maksimum eşzamanlı tarama limiti
- *
- * Anti-xray bypass entegrasyonu:
- *  - Her chunk analiz edildiğinde AntiXrayBypass çağrılır
- *  - Sahte bloklar filtrelenir
- *  - Gerçek cevherler VeinData olarak saklanır
  */
 public class ChunkOreScanner {
 
-    private static final int SCAN_RADIUS_CHUNKS = 8;   // chunk yarıçapı (x/z)
-    private static final int MAX_CONCURRENT    = 3;     // eşzamanlı tarama
-    private static final long CACHE_VALID_MS   = 60_000; // 60s cache
+    private static final int SCAN_RADIUS_CHUNKS = 8;   // chunk yarıçapı
+    private static final int MAX_CONCURRENT     = 3;   // eşzamanlı tarama limiti
+    private static final long CACHE_VALID_MS    = 60_000; // 60s cache geçerliliği
 
     private static final ExecutorService executor =
         Executors.newFixedThreadPool(MAX_CONCURRENT, r -> {
@@ -43,9 +43,9 @@ public class ChunkOreScanner {
             return t;
         });
 
-    // ChunkKey -> tarama sonucu
+    /** ChunkKey → Tarama sonucu */
     private static final ConcurrentHashMap<Long, ScanResult> scanCache = new ConcurrentHashMap<>();
-    // Şu an taranan chunk'lar
+    /** Şu an taranmakta olan chunk'lar */
     private static final Set<Long> inProgress = ConcurrentHashMap.newKeySet();
 
     private static final AtomicInteger totalScanned = new AtomicInteger(0);
@@ -71,11 +71,13 @@ public class ChunkOreScanner {
         }
     }
 
-    // ─── Tarama Başlatma ─────────────────────────────────────────
+    // ── Tarama Başlatma ───────────────────────────────────────────────────────
 
     /**
      * Oyuncu pozisyonu etrafındaki chunk'ları taramaya başlatır.
      * Ana thread'den her tick çağrılabilir.
+     *
+     * @param playerPos Oyuncunun mevcut konumu
      */
     public static void triggerScanAround(BlockPos playerPos) {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -92,22 +94,21 @@ public class ChunkOreScanner {
                 if (inProgress.contains(key)) continue;
 
                 ScanResult cached = scanCache.get(key);
-                if (cached != null && System.currentTimeMillis() - cached.timestamp < CACHE_VALID_MS) continue;
+                if (cached != null
+                        && System.currentTimeMillis() - cached.timestamp < CACHE_VALID_MS) continue;
 
-                // Chunk yüklü mü?
                 if (!mc.world.isChunkLoaded(cp.x, cp.z)) continue;
-
                 toScan.add(cp);
             }
         }
 
-        // Yakın chunk'lar önce (manhatttan distance sıralaması)
+        // Yakın chunk'lar önce (manhattan distance sıralaması)
         toScan.sort(Comparator.comparingInt(cp ->
             Math.abs(cp.x - playerChunk.x) + Math.abs(cp.z - playerChunk.z)));
 
         int submitted = 0;
         for (ChunkPos cp : toScan) {
-            if (submitted >= 6) break; // Her tick max 6 submit
+            if (submitted >= 6) break;
             if (inProgress.size() >= MAX_CONCURRENT * 4) break;
 
             long key = cp.toLong();
@@ -119,8 +120,19 @@ public class ChunkOreScanner {
         }
     }
 
-    // ─── Chunk Tarama ────────────────────────────────────────────
+    // ── Chunk Tarama ─────────────────────────────────────────────────────────
 
+    /**
+     * Tek bir chunk'ı tarar:
+     *  1. Ham cevher konumlarını topla
+     *  2. AntiXrayFilter ile sahteleri çıkar (katmanlı skor sistemi)
+     *  3. AntiXrayBypass ile istatistiksel analizi uygula
+     *  4. Damar verilerini oluştur ve cache'e kaydet
+     *
+     * @param world ClientWorld referansı
+     * @param cp    Taranacak chunk pozisyonu
+     * @param key   Chunk long key (cache için)
+     */
     private static void scanChunk(ClientWorld world, ChunkPos cp, long key) {
         try {
             if (world == null || !world.isChunkLoaded(cp.x, cp.z)) return;
@@ -128,25 +140,40 @@ public class ChunkOreScanner {
             WorldChunk chunk = world.getChunk(cp.x, cp.z);
             if (chunk == null) return;
 
-            // Anti-xray bypass analizi
+            // Adım 1: Ham cevher taraması (tüm hedef bloklar)
+            Map<Block, List<BlockPos>> rawOres = rawScanChunk(chunk, cp, world);
+
+            // Adım 2: AntiXrayFilter — katmanlı skor filtresi (YENİ)
+            // Komşu analizi + Y seviyesi + ışık + izolasyon + paket doğrulama
+            Map<Block, List<BlockPos>> filteredOres = AntiXrayFilter.filterAll(world, rawOres);
+
+            // Adım 3: AntiXrayBypass — istatistiksel + damar analizi (mevcut)
             AntiXrayBypass.ChunkAnalysisResult axResult =
                 AntiXrayBypass.analyzeChunk(world, chunk);
 
-            // Gerçek cevherleri topla
-            Map<Block, List<BlockPos>> realOres = new HashMap<>();
-            for (BlockPos pos : axResult.realPositions) {
-                Block b = world.getBlockState(pos).getBlock();
-                if (XrayConfig.isTargetBlock(b)) {
-                    realOres.computeIfAbsent(b, k -> new ArrayList<>()).add(pos);
+            // Adım 4: İki sistemin sonuçlarını birleştir
+            // AntiXrayBypass realPositions varsa → onları kullan (daha hassas)
+            // Yoksa AntiXrayFilter sonuçlarını kullan
+            Map<Block, List<BlockPos>> realOres = new LinkedHashMap<>();
+
+            if (!axResult.realPositions.isEmpty()) {
+                // AntiXrayBypass istatistiksel analizi yaptı → sonuçlarına güven
+                // Ama AntiXrayFilter ile çapraz kontrol yap
+                for (BlockPos pos : axResult.realPositions) {
+                    Block b = world.getBlockState(pos).getBlock();
+                    if (!XrayConfig.isTargetBlock(b)) continue;
+
+                    // AntiXrayFilter'dan da geçmeli
+                    if (!AntiXrayFilter.isFakeBlock(world, pos, b)) {
+                        realOres.computeIfAbsent(b, k -> new ArrayList<>()).add(pos);
+                    }
                 }
+            } else {
+                // AntiXrayBypass analiz yapmadı (anti-xray yok) → AntiXrayFilter sonuçları
+                realOres.putAll(filteredOres);
             }
 
-            // Eğer AntiXray analizi boş bıraktıysa (anti-xray yok), tüm cevherleri tara
-            if (axResult.realPositions.isEmpty()) {
-                rawScanChunk(chunk, cp, world, realOres);
-            }
-
-            // Damarları oluştur
+            // Adım 5: Damar verilerini oluştur
             List<OreVeinAnalyzer.VeinData> veins = new ArrayList<>();
             Map<Block, Integer> counts = new LinkedHashMap<>();
 
@@ -162,16 +189,25 @@ public class ChunkOreScanner {
             totalScanned.incrementAndGet();
 
         } catch (Exception ex) {
-            // Sessizce devam et
+            // Sessizce devam et — oyunu çökertme
         } finally {
             inProgress.remove(key);
             queueSize.decrementAndGet();
         }
     }
 
-    /** Ham chunk taraması (anti-xray olmayan sunucular için) */
-    private static void rawScanChunk(WorldChunk chunk, ChunkPos cp, ClientWorld world,
-                                      Map<Block, List<BlockPos>> out) {
+    /**
+     * Ham chunk taraması — chunk section'larından tüm hedef blokları toplar.
+     * Anti-xray filtreleme uygulanmaz; bu adım sadece ham konumları döner.
+     *
+     * @param chunk  Taranacak WorldChunk
+     * @param cp     Chunk pozisyonu
+     * @param world  ClientWorld
+     * @return Block türüne göre gruplandırılmış ham blok konumları
+     */
+    private static Map<Block, List<BlockPos>> rawScanChunk(WorldChunk chunk, ChunkPos cp,
+                                                            ClientWorld world) {
+        Map<Block, List<BlockPos>> out = new HashMap<>();
         int baseX = cp.getStartX();
         int baseZ = cp.getStartZ();
         ChunkSection[] sections = chunk.getSectionArray();
@@ -186,19 +222,23 @@ public class ChunkOreScanner {
                     for (int lz = 0; lz < 16; lz++) {
                         Block b = sec.getBlockState(lx, ly, lz).getBlock();
                         if (!XrayConfig.isTargetBlock(b)) continue;
-                        BlockPos pos = new BlockPos(baseX+lx, baseY+ly, baseZ+lz);
+                        BlockPos pos = new BlockPos(baseX + lx, baseY + ly, baseZ + lz);
                         out.computeIfAbsent(b, k -> new ArrayList<>()).add(pos);
                     }
                 }
             }
         }
+        return out;
     }
 
-    // ─── Sonuç Erişim API ────────────────────────────────────────
+    // ── Sonuç Erişim API ──────────────────────────────────────────────────────
 
     /**
      * Belirtilen chunk'ın tarama sonucunu döner (cache'den).
      * Taranmamışsa null döner.
+     *
+     * @param cp Chunk pozisyonu
+     * @return ScanResult veya null
      */
     public static ScanResult getResult(ChunkPos cp) {
         return scanCache.get(cp.toLong());
@@ -206,6 +246,10 @@ public class ChunkOreScanner {
 
     /**
      * Oyuncu etrafındaki tüm taranmış cevher damarlarını toplar.
+     *
+     * @param player      Oyuncu konumu
+     * @param radiusChunks Chunk cinsinden yarıçap
+     * @return Mesafeye göre sıralanmış damar listesi
      */
     public static List<OreVeinAnalyzer.VeinData> getAllVisibleVeins(BlockPos player, int radiusChunks) {
         List<OreVeinAnalyzer.VeinData> all = new ArrayList<>();
@@ -226,7 +270,11 @@ public class ChunkOreScanner {
     }
 
     /**
-     * Toplam bulunan cevher sayısı (görünür range)
+     * Toplam bulunan cevher sayısı (görünür range).
+     *
+     * @param player      Oyuncu konumu
+     * @param radiusChunks Chunk cinsinden yarıçap
+     * @return Block türüne göre toplam sayı haritası
      */
     public static Map<Block, Integer> getTotalCounts(BlockPos player, int radiusChunks) {
         Map<Block, Integer> total = new LinkedHashMap<>();
@@ -234,7 +282,7 @@ public class ChunkOreScanner {
 
         for (int cx = -radiusChunks; cx <= radiusChunks; cx++) {
             for (int cz = -radiusChunks; cz <= radiusChunks; cz++) {
-                ScanResult r = scanCache.get(new ChunkPos(center.x+cx, center.z+cz).toLong());
+                ScanResult r = scanCache.get(new ChunkPos(center.x + cx, center.z + cz).toLong());
                 if (r == null) continue;
                 r.counts.forEach((b, c) -> total.merge(b, c, Integer::sum));
             }
@@ -242,32 +290,55 @@ public class ChunkOreScanner {
         return total;
     }
 
-    // ─── Cache Yönetimi ──────────────────────────────────────────
+    // ── Cache Yönetimi ────────────────────────────────────────────────────────
 
+    /**
+     * Chunk boşaltıldığında tüm ilgili cache'leri temizler.
+     *
+     * @param cp Boşaltılan chunk pozisyonu
+     */
     public static void onChunkUnloaded(ChunkPos cp) {
         long key = cp.toLong();
         scanCache.remove(key);
         AntiXrayBypass.invalidateChunk(cp);
         OreVeinAnalyzer.invalidate(key);
+        XRayModule.clearChunk(cp.x, cp.z); // BFS + AntiXrayFilter cache
     }
 
+    /**
+     * Yeni chunk yüklendiğinde scan cache'ini geçersiz kıl.
+     *
+     * @param cp Yüklenen chunk pozisyonu
+     */
     public static void onChunkLoaded(ChunkPos cp) {
-        // Yeni chunk yüklendiğinde cache'i geçersiz kıl
         long key = cp.toLong();
         scanCache.remove(key);
     }
 
+    /**
+     * Tüm cache'leri temizler (Xray kapatılınca veya dünya değişince).
+     */
     public static void clearAll() {
         scanCache.clear();
         inProgress.clear();
         AntiXrayBypass.clearCache();
         OreVeinAnalyzer.clearAll();
+        XRayModule.clearAll(); // BFS + AntiXrayFilter cache
     }
 
-    // ─── İstatistik ──────────────────────────────────────────────
+    // ── İstatistik ───────────────────────────────────────────────────────────
 
-    public static int getTotalScanned()   { return totalScanned.get(); }
-    public static int getQueueSize()      { return queueSize.get(); }
-    public static int getCacheSize()      { return scanCache.size(); }
-    public static boolean isScanning()    { return !inProgress.isEmpty(); }
+    public static int getTotalScanned()  { return totalScanned.get(); }
+    public static int getQueueSize()     { return queueSize.get(); }
+    public static int getCacheSize()     { return scanCache.size(); }
+    public static boolean isScanning()  { return !inProgress.isEmpty(); }
+
+    /** AntiXrayFilter cache boyutunu döner (debug). */
+    public static int getFilterCacheSize() { return AntiXrayFilter.getCacheSize(); }
+
+    /** BlockVerificationCache istatistikleri (debug). */
+    public static String getVerificationStats() {
+        return "verified=" + BlockVerificationCache.getVerifiedCount()
+             + " unverified=" + BlockVerificationCache.getUnverifiedCount();
+    }
 }
