@@ -24,12 +24,12 @@ import java.util.Set;
 public final class DimensionBlockValidator {
 
     // ── Overworld'de OLMAMASI gereken bloklar ────────────────────────────────
+    // Sadece anti-xray tarafından sahte blok olarak kullanılabilecek Nether cevherleri
     private static final Set<Block> NETHER_ONLY = Set.of(
         Blocks.ANCIENT_DEBRIS,
         Blocks.NETHER_GOLD_ORE,
         Blocks.NETHER_QUARTZ_ORE,
         Blocks.MAGMA_BLOCK,
-        Blocks.NETHER_BRICK,
         Blocks.NETHER_BRICKS,
         Blocks.BASALT,
         Blocks.BLACKSTONE,
