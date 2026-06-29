@@ -45,13 +45,16 @@ public class XrayHUD {
     private static OreVeinAnalyzer.OreStats cachedStats = null;
 
     public static void onTick() {
-        ticksSinceUpdate++;
-        if (ticksSinceUpdate < UPDATE_INTERVAL) return;
-        ticksSinceUpdate = 0;
-
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.world == null || mc.player == null) return;
         if (!ModuleManager.isEnabled("Xray")) return;
+
+        // V5: Her tick path tracker güncellenir (mesafe filtresi için kritik)
+        PlayerPathTracker.tick(mc.player);
+
+        ticksSinceUpdate++;
+        if (ticksSinceUpdate < UPDATE_INTERVAL) return;
+        ticksSinceUpdate = 0;
 
         BlockPos playerPos = mc.player.getBlockPos();
 

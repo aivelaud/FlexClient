@@ -3,6 +3,7 @@ package com.flex.client.mixin;
 import com.flex.client.module.ModuleManager;
 import com.flex.client.xray.AntiXrayFilter;
 import com.flex.client.xray.BlockVerificationCache;
+import com.flex.client.xray.PlayerPathTracker;
 import com.flex.client.xray.XrayConfig;
 import net.minecraft.block.*;
 import net.minecraft.client.MinecraftClient;
@@ -10,6 +11,7 @@ import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.network.packet.s2c.play.BlockUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkDataS2CPacket;
 import net.minecraft.network.packet.s2c.play.ChunkDeltaUpdateS2CPacket;
+import net.minecraft.network.packet.s2c.play.PlayerRespawnS2CPacket;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.chunk.WorldChunk;
 import org.spongepowered.asm.mixin.Mixin;
@@ -118,6 +120,18 @@ public class XRayModule {
             // AntiXrayFilter cache'ini bu blok için geçersiz kıl (yeniden hesaplansın)
             AntiXrayFilter.invalidateChunk(pos.getX() >> 4, pos.getZ() >> 4);
         }
+    }
+
+    // ── Ölüm / Boyut Değişimi — Cache Temizleme ───────────────────────────────
+
+    /**
+     * V5: Oyuncu respawn olduğunda (ölüm veya boyut değişimi) tüm cache'leri temizler.
+     * Yeni boyutta eski verified listesi ve path tracker verisi geçersizdir.
+     */
+    @Inject(method = "onPlayerRespawn", at = @At("HEAD"))
+    private void onRespawn(PlayerRespawnS2CPacket packet, CallbackInfo ci) {
+        BlockVerificationCache.clearAll();
+        PlayerPathTracker.clearAll();
     }
 
     // ── Çoklu Blok Güncelleme ─────────────────────────────────────────────────

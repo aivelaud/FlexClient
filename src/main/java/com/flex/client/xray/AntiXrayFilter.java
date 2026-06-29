@@ -3,110 +3,120 @@ package com.flex.client.xray;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 import java.util.*;
 
 /**
- * AntiXrayFilter V4 — Paket Doğrulama Tabanlı Filtre
+ * AntiXrayFilter V5 — Mesafe Tabanlı Filtre
  *
- * V3 sorunları (neden geri alındı):
- *  - Chunk yoğunluk sayacı (max=8) gerçek diamondları da siliyordu
- *  - "Komşu yok → SAHTE" kuralı taş içindeki gerçek cevherleri eliyordu
- *  - Sonuç: Diamond=0, Iron=0 (false positive patlaması)
+ * ───────────────────────────────────────────────────────────────────
+ * NEDEN V1-V4 YETERSİZ KALDI
+ * ───────────────────────────────────────────────────────────────────
  *
- * V4 stratejisi — karar ağacı (hızlıdan yavaşa):
+ * V1-V3: Komşu analizi + chunk yoğunluğu
+ *   Sorun: Paper sahtelerini de taşın içine gömer.
+ *   Komşu yok = sahte mantığı GERÇEK cevherleri de sildi (Diamond=0).
  *
- *  1. Boyut geçersiz mi?      → SAHTE  (Nether bloğu Overworld'de)
- *  2. Y aralığı geçersiz mi?  → SAHTE  (vanilla spawn tablosu dışı)
- *  3. Server BLOCK_UPDATE ile doğrulandı mı?
- *                              → GERÇEK (en güvenilir sinyal)
- *  4. Açık komşusu var mı?    → GERÇEK (mağara yüzeyine yakın)
- *  5. Hiçbiri                 → SAHTE  (tamamen gömülü + doğrulanmamış)
+ * V4: Verified → REAL, open neighbor → REAL, else → FAKE
+ *   Sorun: 47m uzaktaki Diamond'un komşusu TAMAMEN TAŞ çünkü Paper
+ *   o chunk'ta sahte taş da gömer. Komşu analizi başarısız.
+ *   Ekran: 14 745 diamond (hepsi sahte, V4 geçirdi).
  *
- * Neden bu çalışır:
- *  - Paper Mode 2 sahteleri TAMAMEN TAŞIN içine gömer (tüm komşular solid)
- *  - Gerçek cevherler MAĞARA YÜZEYİNDE olur (en az 1 hava komşusu)
- *  - Yaklaşınca server BLOCK_UPDATE gönderir → verified → hep göster
+ * ───────────────────────────────────────────────────────────────────
+ * V5 TEMEL İÇGÖRÜSÜ
+ * ───────────────────────────────────────────────────────────────────
  *
- * Chunk yoğunluk sayacı V4'te YOK — false positive üretiyordu.
- * Boyut ve Y filtresi Nether bloklarını %100 eler.
- * Geri kalan gerçek cevherler verified veya açık komşu ile geçer.
+ * Paper Engine Mode 2 davranışı:
+ *   1. Chunk yüklenince → sahte cevherler gönderir (S2C ChunkData)
+ *   2. Oyuncu ~32m mesafeye gelince → GERÇEĞI gönderir (S2C BlockUpdate)
+ *
+ * Bu yüzden:
+ *   - 20m+ uzaktaki reveal edilmemiş cevher → %100 SAHTE
+ *   - BlockUpdate alan cevher → %100 GERÇEK
+ *   - 20m içindeki cevher → komşu veya visited zone ile kontrol
+ *
+ * Ekran analizi (mc.craftlime.net):
+ *   Diamond:   14 745 adet, 47m uzakta → hepsi 20m filtresiyle silinir
+ *   D.Diamond: 13 302 adet, 63m uzakta → hepsi 20m filtresiyle silinir
+ *   Iron:      31 639 adet, 4m uzakta  → komşu/path ile filtrele
+ *
+ * ───────────────────────────────────────────────────────────────────
+ * V5 KARAR AĞACI (sırayla, hızlıdan yavaşa)
+ * ───────────────────────────────────────────────────────────────────
+ *
+ *  1. Boyut uyumsuz?           → SAHTE  (Overworld'de Ancient Debris)
+ *  2. Y aralığı dışı?          → SAHTE  (Diamond Y=200)
+ *  3. BlockUpdate ile verified? → GERÇEK (Server %100 onayladı)
+ *  4. Mesafe > 20m?            → SAHTE  (Paper bu mesafede reveal etmez)
+ *  5. Mesafe ≤ 8m?             → sadece open neighbor kontrolü
+ *     5a. Açık komşu var?      → GERÇEK
+ *     5b. Yok                  → SAHTE
+ *  6. Mesafe 8-20m:
+ *     6a. Açık komşu var?      → GERÇEK
+ *     6b. Ziyaret edilen bölge?→ GERÇEK
+ *     6c. Hiçbiri              → SAHTE
+ *
+ * ───────────────────────────────────────────────────────────────────
  */
 public final class AntiXrayFilter {
 
-    // ── Y-aralığı tablosu {minY, maxY} ────────────────────────────────────────
-    // Minecraft 1.20.1 vanilla spawn tablosu — kesin sınırlar, tolerans yok
-    private static final Map<Block, int[]> Y_RANGES = new HashMap<>();
-
-    static {
-        Y_RANGES.put(Blocks.DIAMOND_ORE,              new int[]{-64,  16});
-        Y_RANGES.put(Blocks.DEEPSLATE_DIAMOND_ORE,    new int[]{-64,  16});
-        Y_RANGES.put(Blocks.IRON_ORE,                 new int[]{-64,  72});
-        Y_RANGES.put(Blocks.DEEPSLATE_IRON_ORE,       new int[]{-64,  72});
-        Y_RANGES.put(Blocks.GOLD_ORE,                 new int[]{-64,  32});
-        Y_RANGES.put(Blocks.DEEPSLATE_GOLD_ORE,       new int[]{-64,  32});
-        Y_RANGES.put(Blocks.COPPER_ORE,               new int[]{ -16, 112});
-        Y_RANGES.put(Blocks.DEEPSLATE_COPPER_ORE,     new int[]{ -16,  16});
-        Y_RANGES.put(Blocks.COAL_ORE,                 new int[]{   0, 192});
-        Y_RANGES.put(Blocks.DEEPSLATE_COAL_ORE,       new int[]{-64,   0});
-        Y_RANGES.put(Blocks.LAPIS_ORE,                new int[]{-64,  64});
-        Y_RANGES.put(Blocks.DEEPSLATE_LAPIS_ORE,      new int[]{-64,   0});
-        Y_RANGES.put(Blocks.REDSTONE_ORE,             new int[]{-64,  16});
-        Y_RANGES.put(Blocks.DEEPSLATE_REDSTONE_ORE,   new int[]{-64,   0});
-        Y_RANGES.put(Blocks.EMERALD_ORE,              new int[]{ -16, 320});
-        Y_RANGES.put(Blocks.DEEPSLATE_EMERALD_ORE,    new int[]{ -16,   0});
-        Y_RANGES.put(Blocks.ANCIENT_DEBRIS,           new int[]{   8, 119});
-        Y_RANGES.put(Blocks.NETHER_GOLD_ORE,          new int[]{  10, 117});
-        Y_RANGES.put(Blocks.NETHER_QUARTZ_ORE,        new int[]{  10, 117});
-        // Özel bloklar — Y kısıtlaması yok
-        Y_RANGES.put(Blocks.AMETHYST_CLUSTER,         null);
-        Y_RANGES.put(Blocks.SPAWNER,                  null);
-        Y_RANGES.put(Blocks.CHEST,                    null);
-        Y_RANGES.put(Blocks.OBSIDIAN,                 null);
-    }
+    // Mesafe eşikleri (kare olarak sakla — sqrt pahalı)
+    private static final double REVEAL_DIST_SQ = 20.0 * 20.0; // 400 — paper reveal sınırı
+    private static final double NEAR_DIST_SQ   =  8.0 *  8.0; // 64  — yakın zon
 
     private static final Direction[] DIRS = Direction.values();
 
     // =========================================================================
-    // Ana Filtre — Karar Ağacı
+    // ANA FİLTRE
     // =========================================================================
 
     /**
-     * V4 karar ağacı:
-     *  SAHTE  → boyut geçersiz VEYA Y geçersiz VEYA (doğrulanmamış VE açık komşu yok)
-     *  GERÇEK → boyut+Y geçerli VE (doğrulanmış VEYA açık komşu var)
+     * V5 karar ağacı. true = SAHTE (gösterme), false = GERÇEK (göster).
      *
-     * @param world  ClientWorld
-     * @param pos    Blok konumu
-     * @param block  Blok türü
-     * @return true → sahte (gösterme), false → gerçek (göster)
+     * @param world     ClientWorld
+     * @param pos       Blok konumu
+     * @param block     Blok türü
+     * @param playerPos Oyuncu pozisyonu (mesafe hesabı için)
      */
-    public static boolean isFake(ClientWorld world, BlockPos pos, Block block) {
+    public static boolean isFake(ClientWorld world, BlockPos pos, Block block, Vec3d playerPos) {
         if (world == null || pos == null || block == null) return false;
 
         try {
-            // ── 1. Boyut-Blok Uyumu ───────────────────────────────────────────
-            if (!isDimensionValid(block, world)) return true;
+            // ── 1. Boyut ─────────────────────────────────────────────────────
+            if (!OreValidator.isDimensionValid(block, world)) return true;
 
-            // ── 2. Y-Seviyesi ─────────────────────────────────────────────────
-            if (!isYValid(block, pos.getY())) return true;
+            // ── 2. Y aralığı ─────────────────────────────────────────────────
+            if (!OreValidator.isYValid(block, pos.getY())) return true;
 
-            // ── 3. Server Doğrulama (BLOCK_UPDATE paketi aldı mı?) ────────────
-            // Doğrulanmış → %100 gerçek, hemen göster
+            // ── 3. Server doğrulaması (BlockUpdate paketi) ───────────────────
+            // En güvenilir sinyal: server bu bloğun gerçek olduğunu söyledi
             if (BlockVerificationCache.isVerified(pos)) return false;
 
-            // ── 4. Açık Komşu Kontrolü ────────────────────────────────────────
-            // Hava / sıvı / non-solid komşu → mağara yüzeyinde → gerçek
-            if (hasOpenNeighbor(world, pos)) return false;
+            // ── 4. Mesafe filtresi (V5'in temel silahı) ──────────────────────
+            // Paper, 32 blok (yaklaşık 20m) içindeyken reveal yapar.
+            // 20m+ uzaktaki reveal edilmemiş blok → kesinlikle sahte.
+            double distSq = (playerPos != null)
+                ? playerPos.squaredDistanceTo(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5)
+                : Double.MAX_VALUE;
 
-            // ── 5. Hiçbiri → SAHTE ───────────────────────────────────────────
-            // Tamamen taşa gömülü + server doğrulamadı = Paper sahte bloğu
-            return true;
+            if (distSq > REVEAL_DIST_SQ) return true; // 20m+ → SAHTE
+
+            // ── 5. Yakın zon (0-8m): sadece komşu kontrolü ──────────────────
+            if (distSq <= NEAR_DIST_SQ) {
+                return !hasOpenNeighbor(world, pos);
+            }
+
+            // ── 6. Orta zon (8-20m): komşu VEYA ziyaret edilen bölge ─────────
+            if (hasOpenNeighbor(world, pos)) return false;
+            if (PlayerPathTracker.isInVisitedZone(pos)) return false;
+            return true; // Orta zon, gömülü, ziyaret edilmemiş → SAHTE
 
         } catch (Exception e) {
             return false; // Hata → güvenli taraf: göster
@@ -114,7 +124,17 @@ public final class AntiXrayFilter {
     }
 
     /**
-     * World parametreli wrapper — ChunkOreScanner geriye uyumluluk için.
+     * World + Vec3d parametresiz wrapper — playerPos'u MinecraftClient'tan alır.
+     * ChunkOreScanner, XrayRealOreRenderer gibi legacy çağrılar için.
+     */
+    public static boolean isFake(ClientWorld world, BlockPos pos, Block block) {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        Vec3d pPos = (mc.player != null) ? mc.player.getPos() : null;
+        return isFake(world, pos, block, pPos);
+    }
+
+    /**
+     * World → ClientWorld dönüşüm wrapper. ChunkOreScanner.filterAll() için.
      */
     public static boolean isFakeBlock(World world, BlockPos pos, Block block) {
         if (world instanceof ClientWorld cw) return isFake(cw, pos, block);
@@ -122,112 +142,60 @@ public final class AntiXrayFilter {
     }
 
     // =========================================================================
-    // Katman 1: Boyut-Blok Uyumu
-    // =========================================================================
-
-    private static boolean isDimensionValid(Block block, ClientWorld world) {
-        boolean isOverworld = world.getRegistryKey() == World.OVERWORLD;
-        boolean isNether    = world.getRegistryKey() == World.NETHER;
-
-        if (isOverworld) {
-            // Nether bloğu Overworld'de → kesinlikle sahte
-            if (block == Blocks.ANCIENT_DEBRIS)    return false;
-            if (block == Blocks.NETHER_GOLD_ORE)   return false;
-            if (block == Blocks.NETHER_QUARTZ_ORE) return false;
-        }
-
-        if (isNether) {
-            // Overworld cevheri Nether'de → kesinlikle sahte
-            if (block == Blocks.DIAMOND_ORE    || block == Blocks.DEEPSLATE_DIAMOND_ORE)  return false;
-            if (block == Blocks.IRON_ORE       || block == Blocks.DEEPSLATE_IRON_ORE)     return false;
-            if (block == Blocks.GOLD_ORE       || block == Blocks.DEEPSLATE_GOLD_ORE)     return false;
-            if (block == Blocks.COAL_ORE       || block == Blocks.DEEPSLATE_COAL_ORE)     return false;
-            if (block == Blocks.LAPIS_ORE      || block == Blocks.DEEPSLATE_LAPIS_ORE)    return false;
-            if (block == Blocks.COPPER_ORE     || block == Blocks.DEEPSLATE_COPPER_ORE)   return false;
-            if (block == Blocks.REDSTONE_ORE   || block == Blocks.DEEPSLATE_REDSTONE_ORE) return false;
-            if (block == Blocks.EMERALD_ORE    || block == Blocks.DEEPSLATE_EMERALD_ORE)  return false;
-        }
-
-        return true;
-    }
-
-    // =========================================================================
-    // Katman 2: Y-Seviyesi
-    // =========================================================================
-
-    private static boolean isYValid(Block block, int y) {
-        // null kaydı = Y kısıtlaması yok (Amethyst, Spawner vb.)
-        if (!Y_RANGES.containsKey(block)) return true; // Bilinmeyen blok → geçir
-        int[] range = Y_RANGES.get(block);
-        if (range == null) return true; // Özel blok, her Y geçerli
-        return y >= range[0] && y <= range[1];
-    }
-
-    // =========================================================================
-    // Katman 4: Açık Komşu Kontrolü
+    // AÇIK KOMŞU KONTROLÜ
     // =========================================================================
 
     /**
      * Bloğun 6 doğrudan komşusundan en az birinin "açık" olup olmadığını kontrol eder.
      *
-     * Açık sayılanlar:
-     *  - Hava (air, cave_air, void_air)
-     *  - Su / lav
-     *  - Solid olmayan herhangi bir blok (bitki, rail, torç, merdiven…)
-     *
-     * NOT: Bu kontrol "açık komşu var → GERÇEK" mantığıyla çalışır.
-     * "Açık komşu yok" tek başına sahte sayılmaz (V3'teki hata).
-     * Sadece verified değilse VE açık komşu da yoksa SAHTE sayılır.
-     *
-     * @param world Dünya
-     * @param pos   Kontrol edilecek blok konumu
-     * @return true → en az 1 açık komşu var
+     * Açık sayılanlar: hava, su, lav, non-solid blok, ışık veren blok.
+     * Yüklenmemiş chunk komşusu → güvenli say (açık kabul et).
      */
     private static boolean hasOpenNeighbor(ClientWorld world, BlockPos pos) {
-        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        BlockPos.Mutable m = new BlockPos.Mutable();
         for (Direction dir : DIRS) {
-            mutable.set(pos, dir);
+            m.set(pos, dir);
             try {
-                BlockState state = world.getBlockState(mutable);
-                // Hava türleri
+                BlockState state = world.getBlockState(m);
                 if (state.isAir()) return true;
-                // Sıvılar
                 Block b = state.getBlock();
                 if (b == Blocks.WATER || b == Blocks.LAVA) return true;
-                // Solid olmayan her blok (torç, bitki, rail, vb.)
-                if (!state.isSolidBlock(world, mutable)) return true;
+                if (!state.isSolidBlock(world, m)) return true;
+                if (state.getLuminance() > 0) return true;
             } catch (Exception ignored) {
-                // Yüklenmemiş komşu chunk → açık say (güvenli taraf)
-                return true;
+                return true; // Yüklenmemiş chunk → açık say
             }
         }
         return false;
     }
 
     // =========================================================================
-    // Toplu Filtreleme (ChunkOreScanner API)
+    // TOPLU FİLTRELEME (ChunkOreScanner API)
     // =========================================================================
 
     /**
-     * Block → pozisyonlar haritasını filtreler.
-     * ChunkOreScanner.scanChunk() tarafından çağrılır.
+     * Blok → pozisyon haritasını filtreler.
+     * Player pozisyonunu MinecraftClient'tan alır (signature değişmez).
      *
      * @param world      Dünya
-     * @param oresByType Block türüne göre pozisyon haritası
+     * @param oresByType Blok türüne göre pozisyon haritası
      * @return Filtrelenmiş harita
      */
     public static Map<Block, List<BlockPos>> filterAll(World world,
             Map<Block, List<BlockPos>> oresByType) {
+        if (!(world instanceof ClientWorld cw)) return oresByType;
+
+        MinecraftClient mc = MinecraftClient.getInstance();
+        Vec3d playerPos = (mc.player != null) ? mc.player.getPos() : null;
+
         Map<Block, List<BlockPos>> result = new LinkedHashMap<>();
         for (Map.Entry<Block, List<BlockPos>> entry : oresByType.entrySet()) {
             try {
                 Block block = entry.getKey();
-                List<BlockPos> copy = new ArrayList<>(entry.getValue()); // CME önlemi
+                List<BlockPos> copy = new ArrayList<>(entry.getValue()); // CME güvenliği
                 List<BlockPos> real = new ArrayList<>();
                 for (BlockPos pos : copy) {
-                    if (!isFakeBlock(world, pos, block)) {
-                        real.add(pos);
-                    }
+                    if (!isFake(cw, pos, block, playerPos)) real.add(pos);
                 }
                 if (!real.isEmpty()) result.put(block, real);
             } catch (Exception ignored) {}
@@ -236,49 +204,33 @@ public final class AntiXrayFilter {
     }
 
     // =========================================================================
-    // Chunk Yaşam Döngüsü
+    // CHUNK YAŞAM DÖNGÜSÜ
     // =========================================================================
 
-    /**
-     * Chunk yüklendiğinde verification cache'ini temizler.
-     * XRayModule.onChunkData() tarafından çağrılır.
-     */
+    /** Chunk yüklenince verification cache'ini temizle. */
     public static void onChunkLoad(ChunkPos cp) {
         BlockVerificationCache.clearChunk(cp.x, cp.z);
     }
 
-    /**
-     * Chunk boşaltıldığında verification cache'ini temizler.
-     * ChunkOreScanner.onChunkUnloaded() tarafından çağrılır.
-     */
+    /** Chunk boşaltılınca verification cache'ini temizle. */
     public static void onChunkUnload(ChunkPos cp) {
         BlockVerificationCache.clearChunk(cp.x, cp.z);
     }
 
-    /**
-     * Geriye uyumluluk: XRayModule.onBlockUpdate() tarafından çağrılır.
-     */
-    public static void invalidateChunk(int cx, int cz) {
-        // V4: invalidate artık yalnızca verification cache'ini etkiler
-        // BlockVerificationCache chunk'a göre otomatik yönetir
-    }
+    /** Geriye uyumluluk — V4 çağrıları için no-op. */
+    public static void invalidateChunk(int cx, int cz) { /* V5: mesafe filtresi kullanır */ }
 
-    /**
-     * Tüm cache temizleme (Xray kapatılınca / dünya değişince).
-     */
+    /** Tüm cache + path tracker temizleme. */
     public static void clearAll() {
         BlockVerificationCache.clearAll();
+        PlayerPathTracker.clearAll();
     }
 
-    /**
-     * Debug: verified blok sayısı.
-     */
-    public static int getCacheSize() {
-        return BlockVerificationCache.getVerifiedCount();
-    }
+    /** V3 uyumluluk stub. */
+    public static void registerChunkCounts(ChunkPos cp, Map<Block, Integer> rawCounts) { /* removed in V5 */ }
 
-    // V3 ile uyumluluk — chunk counts artık yok, no-op
-    public static void registerChunkCounts(ChunkPos cp, Map<Block, Integer> rawCounts) { /* V4: removed */ }
+    /** Debug: verified blok sayısı. */
+    public static int getCacheSize() { return BlockVerificationCache.getVerifiedCount(); }
 
     private AntiXrayFilter() {}
 }
