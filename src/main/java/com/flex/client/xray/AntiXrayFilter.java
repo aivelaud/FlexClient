@@ -10,83 +10,78 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * AntiXrayFilter V3 — Whitelist Yaklaşımlı Agresif Filtre
+ * AntiXrayFilter V4 — Paket Doğrulama Tabanlı Filtre
  *
- * V2 sorunları:
- *  - Chunk yoğunluk eşikleri çok yüksekti (diamond: 24 olmaması gerekiyordu)
- *  - Komşu analizi yetersizdi
+ * V3 sorunları (neden geri alındı):
+ *  - Chunk yoğunluk sayacı (max=8) gerçek diamondları da siliyordu
+ *  - "Komşu yok → SAHTE" kuralı taş içindeki gerçek cevherleri eliyordu
+ *  - Sonuç: Diamond=0, Iron=0 (false positive patlaması)
  *
- * V3 stratejisi — "sahteyi bul" yerine "gerçeği bul":
- *  Bir blok GERÇEK sayılır eğer:
- *    1. Boyut-blok uyumu var (Overworld'de Nether bloğu yok)
- *    2. Y aralığında (vanilla spawn tablosu)
- *    3. Deepslate varyantı doğru bölgede (Y ≤ 0)
- *    4. Chunk'ta bu türden anomali yok (count ≤ max/chunk)
- *    5. En az 1 açık komşu var (hava / sıvı / non-solid)
+ * V4 stratejisi — karar ağacı (hızlıdan yavaşa):
  *
- * Chunk yoğunluk eşikleri (V3 — daha sıkı):
- *   Diamond:  8    (V2: 24)
- *   Iron:    40    (V2: 180)
- *   Gold:    20    (V2: 100)
- *   Copper:  60    (V2: 240)
- *   Coal:    80    (V2: 300)
+ *  1. Boyut geçersiz mi?      → SAHTE  (Nether bloğu Overworld'de)
+ *  2. Y aralığı geçersiz mi?  → SAHTE  (vanilla spawn tablosu dışı)
+ *  3. Server BLOCK_UPDATE ile doğrulandı mı?
+ *                              → GERÇEK (en güvenilir sinyal)
+ *  4. Açık komşusu var mı?    → GERÇEK (mağara yüzeyine yakın)
+ *  5. Hiçbiri                 → SAHTE  (tamamen gömülü + doğrulanmamış)
  *
- * Tek bir chunk'ta bu sayının üzerinde aynı tür varsa → TÜM O TÜR BLOKLARI SAHTE.
+ * Neden bu çalışır:
+ *  - Paper Mode 2 sahteleri TAMAMEN TAŞIN içine gömer (tüm komşular solid)
+ *  - Gerçek cevherler MAĞARA YÜZEYİNDE olur (en az 1 hava komşusu)
+ *  - Yaklaşınca server BLOCK_UPDATE gönderir → verified → hep göster
+ *
+ * Chunk yoğunluk sayacı V4'te YOK — false positive üretiyordu.
+ * Boyut ve Y filtresi Nether bloklarını %100 eler.
+ * Geri kalan gerçek cevherler verified veya açık komşu ile geçer.
  */
 public final class AntiXrayFilter {
 
-    // ── Chunk başına mutlak maksimum (2x güvenlik payı dahil) ─────────────────
-    private static final Map<Block, Integer> MAX_PER_CHUNK = new HashMap<>();
+    // ── Y-aralığı tablosu {minY, maxY} ────────────────────────────────────────
+    // Minecraft 1.20.1 vanilla spawn tablosu — kesin sınırlar, tolerans yok
+    private static final Map<Block, int[]> Y_RANGES = new HashMap<>();
 
     static {
-        MAX_PER_CHUNK.put(Blocks.DIAMOND_ORE,              8);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_DIAMOND_ORE,    8);
-        MAX_PER_CHUNK.put(Blocks.IRON_ORE,                40);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_IRON_ORE,      40);
-        MAX_PER_CHUNK.put(Blocks.GOLD_ORE,                20);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_GOLD_ORE,      20);
-        MAX_PER_CHUNK.put(Blocks.COPPER_ORE,              60);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_COPPER_ORE,    20);
-        MAX_PER_CHUNK.put(Blocks.COAL_ORE,                80);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_COAL_ORE,      40);
-        MAX_PER_CHUNK.put(Blocks.LAPIS_ORE,               12);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_LAPIS_ORE,     12);
-        MAX_PER_CHUNK.put(Blocks.REDSTONE_ORE,            20);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_REDSTONE_ORE,  20);
-        MAX_PER_CHUNK.put(Blocks.EMERALD_ORE,              8);
-        MAX_PER_CHUNK.put(Blocks.DEEPSLATE_EMERALD_ORE,    8);
-        MAX_PER_CHUNK.put(Blocks.ANCIENT_DEBRIS,           3);
-        MAX_PER_CHUNK.put(Blocks.NETHER_GOLD_ORE,         30);
-        MAX_PER_CHUNK.put(Blocks.NETHER_QUARTZ_ORE,       30);
+        Y_RANGES.put(Blocks.DIAMOND_ORE,              new int[]{-64,  16});
+        Y_RANGES.put(Blocks.DEEPSLATE_DIAMOND_ORE,    new int[]{-64,  16});
+        Y_RANGES.put(Blocks.IRON_ORE,                 new int[]{-64,  72});
+        Y_RANGES.put(Blocks.DEEPSLATE_IRON_ORE,       new int[]{-64,  72});
+        Y_RANGES.put(Blocks.GOLD_ORE,                 new int[]{-64,  32});
+        Y_RANGES.put(Blocks.DEEPSLATE_GOLD_ORE,       new int[]{-64,  32});
+        Y_RANGES.put(Blocks.COPPER_ORE,               new int[]{ -16, 112});
+        Y_RANGES.put(Blocks.DEEPSLATE_COPPER_ORE,     new int[]{ -16,  16});
+        Y_RANGES.put(Blocks.COAL_ORE,                 new int[]{   0, 192});
+        Y_RANGES.put(Blocks.DEEPSLATE_COAL_ORE,       new int[]{-64,   0});
+        Y_RANGES.put(Blocks.LAPIS_ORE,                new int[]{-64,  64});
+        Y_RANGES.put(Blocks.DEEPSLATE_LAPIS_ORE,      new int[]{-64,   0});
+        Y_RANGES.put(Blocks.REDSTONE_ORE,             new int[]{-64,  16});
+        Y_RANGES.put(Blocks.DEEPSLATE_REDSTONE_ORE,   new int[]{-64,   0});
+        Y_RANGES.put(Blocks.EMERALD_ORE,              new int[]{ -16, 320});
+        Y_RANGES.put(Blocks.DEEPSLATE_EMERALD_ORE,    new int[]{ -16,   0});
+        Y_RANGES.put(Blocks.ANCIENT_DEBRIS,           new int[]{   8, 119});
+        Y_RANGES.put(Blocks.NETHER_GOLD_ORE,          new int[]{  10, 117});
+        Y_RANGES.put(Blocks.NETHER_QUARTZ_ORE,        new int[]{  10, 117});
+        // Özel bloklar — Y kısıtlaması yok
+        Y_RANGES.put(Blocks.AMETHYST_CLUSTER,         null);
+        Y_RANGES.put(Blocks.SPAWNER,                  null);
+        Y_RANGES.put(Blocks.CHEST,                    null);
+        Y_RANGES.put(Blocks.OBSIDIAN,                 null);
     }
 
-    // ── Chunk contamination: chunkKey → kirlenmiş blok türleri ────────────────
-    // Bir chunk'ta bir tür için count > max ise o tür "contaminated" sayılır.
-    // Contaminated chunk'ta o türün TÜM bloğu sahte.
-    private static final ConcurrentHashMap<Long, Set<Block>> CONTAMINATED =
-            new ConcurrentHashMap<>();
-
-    // ── Chunk ore sayaçları: chunkKey → (Block → count) ──────────────────────
-    private static final ConcurrentHashMap<Long, ConcurrentHashMap<Block, Integer>> CHUNK_COUNTS =
-            new ConcurrentHashMap<>();
-
-    // ── Deepslate varyantları sadece Y ≤ 0'da oluşur ─────────────────────────
-    private static final int DEEPSLATE_MAX_Y = 0;
-
-    // ── Tarama yönleri (6 yön) ───────────────────────────────────────────────
     private static final Direction[] DIRS = Direction.values();
 
     // =========================================================================
-    // Ana Filtre Metodu
+    // Ana Filtre — Karar Ağacı
     // =========================================================================
 
     /**
-     * Verilen bloğun sahte olup olmadığını 5 katmanlı whitelist analizi ile belirler.
+     * V4 karar ağacı:
+     *  SAHTE  → boyut geçersiz VEYA Y geçersiz VEYA (doğrulanmamış VE açık komşu yok)
+     *  GERÇEK → boyut+Y geçerli VE (doğrulanmış VEYA açık komşu var)
      *
-     * @param world  Minecraft client dünyası
+     * @param world  ClientWorld
      * @param pos    Blok konumu
      * @param block  Blok türü
      * @return true → sahte (gösterme), false → gerçek (göster)
@@ -95,26 +90,23 @@ public final class AntiXrayFilter {
         if (world == null || pos == null || block == null) return false;
 
         try {
-            // Server S2C paketi ile doğrulanmış → kesinlikle gerçek
-            if (BlockVerificationCache.isVerified(pos)) return false;
-
-            // ── Katman 0: Boyut-Blok Uyumu ───────────────────────────────────
+            // ── 1. Boyut-Blok Uyumu ───────────────────────────────────────────
             if (!isDimensionValid(block, world)) return true;
 
-            // ── Katman 1: Y Seviyesi ──────────────────────────────────────────
+            // ── 2. Y-Seviyesi ─────────────────────────────────────────────────
             if (!isYValid(block, pos.getY())) return true;
 
-            // ── Katman 2: Deepslate Çakışması ────────────────────────────────
-            if (isDeepslateConflict(block, pos.getY())) return true;
+            // ── 3. Server Doğrulama (BLOCK_UPDATE paketi aldı mı?) ────────────
+            // Doğrulanmış → %100 gerçek, hemen göster
+            if (BlockVerificationCache.isVerified(pos)) return false;
 
-            // ── Katman 3: Chunk Yoğunluk Anomalisi ───────────────────────────
-            long chunkKey = new ChunkPos(pos).toLong();
-            if (isContaminated(chunkKey, block)) return true;
+            // ── 4. Açık Komşu Kontrolü ────────────────────────────────────────
+            // Hava / sıvı / non-solid komşu → mağara yüzeyinde → gerçek
+            if (hasOpenNeighbor(world, pos)) return false;
 
-            // ── Katman 4: Açık Komşu Kontrolü ────────────────────────────────
-            if (!hasOpenNeighbor(world, pos)) return true;
-
-            return false; // Tüm katmanları geçti → gerçek
+            // ── 5. Hiçbiri → SAHTE ───────────────────────────────────────────
+            // Tamamen taşa gömülü + server doğrulamadı = Paper sahte bloğu
+            return true;
 
         } catch (Exception e) {
             return false; // Hata → güvenli taraf: göster
@@ -122,8 +114,7 @@ public final class AntiXrayFilter {
     }
 
     /**
-     * World parametreli geriye uyumluluk wrapper (ChunkOreScanner için).
-     * ClientWorld olmayan World'ler için güvenli taraf döner.
+     * World parametreli wrapper — ChunkOreScanner geriye uyumluluk için.
      */
     public static boolean isFakeBlock(World world, BlockPos pos, Block block) {
         if (world instanceof ClientWorld cw) return isFake(cw, pos, block);
@@ -131,7 +122,7 @@ public final class AntiXrayFilter {
     }
 
     // =========================================================================
-    // Katman 0: Boyut-Blok Uyumu
+    // Katman 1: Boyut-Blok Uyumu
     // =========================================================================
 
     private static boolean isDimensionValid(Block block, ClientWorld world) {
@@ -140,9 +131,9 @@ public final class AntiXrayFilter {
 
         if (isOverworld) {
             // Nether bloğu Overworld'de → kesinlikle sahte
-            if (block == Blocks.ANCIENT_DEBRIS)     return false;
-            if (block == Blocks.NETHER_GOLD_ORE)    return false;
-            if (block == Blocks.NETHER_QUARTZ_ORE)  return false;
+            if (block == Blocks.ANCIENT_DEBRIS)    return false;
+            if (block == Blocks.NETHER_GOLD_ORE)   return false;
+            if (block == Blocks.NETHER_QUARTZ_ORE) return false;
         }
 
         if (isNether) {
@@ -161,103 +152,15 @@ public final class AntiXrayFilter {
     }
 
     // =========================================================================
-    // Katman 1: Y Seviyesi Kontrolü
+    // Katman 2: Y-Seviyesi
     // =========================================================================
 
     private static boolean isYValid(Block block, int y) {
-        // Coal
-        if (block == Blocks.COAL_ORE || block == Blocks.DEEPSLATE_COAL_ORE)
-            return y >= 0 && y <= 192;
-        // Iron
-        if (block == Blocks.IRON_ORE || block == Blocks.DEEPSLATE_IRON_ORE)
-            return y >= -64 && y <= 72;
-        // Copper
-        if (block == Blocks.COPPER_ORE || block == Blocks.DEEPSLATE_COPPER_ORE)
-            return y >= -16 && y <= 112;
-        // Gold
-        if (block == Blocks.GOLD_ORE || block == Blocks.DEEPSLATE_GOLD_ORE)
-            return y >= -64 && y <= 32;
-        // Diamond
-        if (block == Blocks.DIAMOND_ORE || block == Blocks.DEEPSLATE_DIAMOND_ORE)
-            return y >= -64 && y <= 16;
-        // Lapis
-        if (block == Blocks.LAPIS_ORE || block == Blocks.DEEPSLATE_LAPIS_ORE)
-            return y >= -64 && y <= 64;
-        // Redstone
-        if (block == Blocks.REDSTONE_ORE || block == Blocks.DEEPSLATE_REDSTONE_ORE)
-            return y >= -64 && y <= 16;
-        // Emerald
-        if (block == Blocks.EMERALD_ORE || block == Blocks.DEEPSLATE_EMERALD_ORE)
-            return y >= -16 && y <= 320;
-        // Ancient Debris
-        if (block == Blocks.ANCIENT_DEBRIS)
-            return y >= 8 && y <= 119;
-        // Nether Gold / Quartz
-        if (block == Blocks.NETHER_GOLD_ORE || block == Blocks.NETHER_QUARTZ_ORE)
-            return y >= 10 && y <= 117;
-        // Bilinmeyen blok → geçir (Lapis, Amethyst, Spawner vb. bozulmasın)
-        return true;
-    }
-
-    // =========================================================================
-    // Katman 2: Deepslate Çakışması
-    // =========================================================================
-
-    private static boolean isDeepslateConflict(Block block, int y) {
-        if (y > DEEPSLATE_MAX_Y) {
-            if (block == Blocks.DEEPSLATE_DIAMOND_ORE
-             || block == Blocks.DEEPSLATE_IRON_ORE
-             || block == Blocks.DEEPSLATE_GOLD_ORE
-             || block == Blocks.DEEPSLATE_COAL_ORE
-             || block == Blocks.DEEPSLATE_COPPER_ORE
-             || block == Blocks.DEEPSLATE_LAPIS_ORE
-             || block == Blocks.DEEPSLATE_REDSTONE_ORE
-             || block == Blocks.DEEPSLATE_EMERALD_ORE) {
-                return true; // Deepslate ore Y > 0 → sahte
-            }
-        }
-        return false;
-    }
-
-    // =========================================================================
-    // Katman 3: Chunk Yoğunluk Anomalisi
-    // =========================================================================
-
-    /**
-     * Chunk ham tarama sayılarını kayıt eder ve contamination'ı hesaplar.
-     * ChunkOreScanner tarafından raw scan sonrası çağrılır.
-     *
-     * @param cp         Chunk pozisyonu
-     * @param rawCounts  Block → ham blok sayısı
-     */
-    public static void registerChunkCounts(ChunkPos cp, Map<Block, Integer> rawCounts) {
-        long ck = cp.toLong();
-
-        // Önceki veriyi temizle (re-scan durumunda çift sayım önle)
-        CHUNK_COUNTS.remove(ck);
-        CONTAMINATED.remove(ck);
-
-        if (rawCounts.isEmpty()) return;
-
-        ConcurrentHashMap<Block, Integer> counts = new ConcurrentHashMap<>(rawCounts);
-        CHUNK_COUNTS.put(ck, counts);
-
-        // Contamination kontrolü
-        Set<Block> contaminated = ConcurrentHashMap.newKeySet();
-        rawCounts.forEach((b, c) -> {
-            Integer max = MAX_PER_CHUNK.get(b);
-            if (max != null && c > max) {
-                contaminated.add(b);
-            }
-        });
-        if (!contaminated.isEmpty()) {
-            CONTAMINATED.put(ck, contaminated);
-        }
-    }
-
-    private static boolean isContaminated(long chunkKey, Block block) {
-        Set<Block> set = CONTAMINATED.get(chunkKey);
-        return set != null && set.contains(block);
+        // null kaydı = Y kısıtlaması yok (Amethyst, Spawner vb.)
+        if (!Y_RANGES.containsKey(block)) return true; // Bilinmeyen blok → geçir
+        int[] range = Y_RANGES.get(block);
+        if (range == null) return true; // Özel blok, her Y geçerli
+        return y >= range[0] && y <= range[1];
     }
 
     // =========================================================================
@@ -267,52 +170,51 @@ public final class AntiXrayFilter {
     /**
      * Bloğun 6 doğrudan komşusundan en az birinin "açık" olup olmadığını kontrol eder.
      *
-     * Açık sayılan:
+     * Açık sayılanlar:
      *  - Hava (air, cave_air, void_air)
      *  - Su / lav
-     *  - Solid olmayan bloklar (bitkiler, rail, vs.)
-     *  - Işık yayan bloklar (torç vb. → mağara işareti)
+     *  - Solid olmayan herhangi bir blok (bitki, rail, torç, merdiven…)
+     *
+     * NOT: Bu kontrol "açık komşu var → GERÇEK" mantığıyla çalışır.
+     * "Açık komşu yok" tek başına sahte sayılmaz (V3'teki hata).
+     * Sadece verified değilse VE açık komşu da yoksa SAHTE sayılır.
      *
      * @param world Dünya
      * @param pos   Kontrol edilecek blok konumu
-     * @return true → en az 1 açık komşu var (gerçek olabilir)
+     * @return true → en az 1 açık komşu var
      */
     private static boolean hasOpenNeighbor(ClientWorld world, BlockPos pos) {
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
         for (Direction dir : DIRS) {
-            BlockPos neighbor = pos.offset(dir);
+            mutable.set(pos, dir);
             try {
-                BlockState state = world.getBlockState(neighbor);
-                Block b = state.getBlock();
-
+                BlockState state = world.getBlockState(mutable);
                 // Hava türleri
-                if (b == Blocks.AIR || b == Blocks.CAVE_AIR || b == Blocks.VOID_AIR) return true;
+                if (state.isAir()) return true;
                 // Sıvılar
+                Block b = state.getBlock();
                 if (b == Blocks.WATER || b == Blocks.LAVA) return true;
-                // Solid olmayan (bitki, deco, vs.)
-                if (!state.isSolidBlock(world, neighbor)) return true;
-                // Işık kaynakları (torç, lamba → mağara var)
-                if (state.getLuminance() > 0) return true;
-
+                // Solid olmayan her blok (torç, bitki, rail, vb.)
+                if (!state.isSolidBlock(world, mutable)) return true;
             } catch (Exception ignored) {
-                // Chunk sınırı veya yüklenmemiş komşu → açık say (güvenli taraf)
+                // Yüklenmemiş komşu chunk → açık say (güvenli taraf)
                 return true;
             }
         }
-        return false; // Tüm 6 komşu solid → sahte
+        return false;
     }
 
     // =========================================================================
-    // Toplu Filtreleme (ChunkOreScanner API'si)
+    // Toplu Filtreleme (ChunkOreScanner API)
     // =========================================================================
 
     /**
      * Block → pozisyonlar haritasını filtreler.
-     * ChunkOreScanner tarafından çağrılır.
-     * NOT: Counts ÖNCEDEN registerChunkCounts() ile kaydedilmiş olmalı.
+     * ChunkOreScanner.scanChunk() tarafından çağrılır.
      *
      * @param world      Dünya
      * @param oresByType Block türüne göre pozisyon haritası
-     * @return Filtrelenmiş harita (sahte bloklar çıkarılmış)
+     * @return Filtrelenmiş harita
      */
     public static Map<Block, List<BlockPos>> filterAll(World world,
             Map<Block, List<BlockPos>> oresByType) {
@@ -320,8 +222,7 @@ public final class AntiXrayFilter {
         for (Map.Entry<Block, List<BlockPos>> entry : oresByType.entrySet()) {
             try {
                 Block block = entry.getKey();
-                // ConcurrentModificationException önlemi
-                List<BlockPos> copy = new ArrayList<>(entry.getValue());
+                List<BlockPos> copy = new ArrayList<>(entry.getValue()); // CME önlemi
                 List<BlockPos> real = new ArrayList<>();
                 for (BlockPos pos : copy) {
                     if (!isFakeBlock(world, pos, block)) {
@@ -335,71 +236,49 @@ public final class AntiXrayFilter {
     }
 
     // =========================================================================
-    // Chunk Yaşam Döngüsü (Mixin ve ChunkOreScanner tarafından çağrılır)
+    // Chunk Yaşam Döngüsü
     // =========================================================================
 
     /**
-     * Chunk yüklendiğinde veya yeniden tarandığında çağrılır.
-     * Eski contamination ve count verilerini temizler.
-     *
-     * @param cp Yüklenen chunk
+     * Chunk yüklendiğinde verification cache'ini temizler.
+     * XRayModule.onChunkData() tarafından çağrılır.
      */
     public static void onChunkLoad(ChunkPos cp) {
-        long ck = cp.toLong();
-        CHUNK_COUNTS.remove(ck);
-        CONTAMINATED.remove(ck);
         BlockVerificationCache.clearChunk(cp.x, cp.z);
     }
 
     /**
-     * Chunk boşaltıldığında çağrılır.
-     *
-     * @param cp Boşaltılan chunk
+     * Chunk boşaltıldığında verification cache'ini temizler.
+     * ChunkOreScanner.onChunkUnloaded() tarafından çağrılır.
      */
     public static void onChunkUnload(ChunkPos cp) {
-        long ck = cp.toLong();
-        CHUNK_COUNTS.remove(ck);
-        CONTAMINATED.remove(ck);
         BlockVerificationCache.clearChunk(cp.x, cp.z);
     }
 
     /**
-     * Geriye uyumluluk: invalidateChunk → onChunkUnload.
-     * XRayModule.onBlockUpdate ve ChunkOreScanner.onChunkUnloaded tarafından çağrılır.
+     * Geriye uyumluluk: XRayModule.onBlockUpdate() tarafından çağrılır.
      */
     public static void invalidateChunk(int cx, int cz) {
-        onChunkUnload(new ChunkPos(cx, cz));
+        // V4: invalidate artık yalnızca verification cache'ini etkiler
+        // BlockVerificationCache chunk'a göre otomatik yönetir
     }
 
     /**
-     * Tüm cache'leri temizler (Xray kapatılınca / dünya değişince).
+     * Tüm cache temizleme (Xray kapatılınca / dünya değişince).
      */
     public static void clearAll() {
-        CHUNK_COUNTS.clear();
-        CONTAMINATED.clear();
         BlockVerificationCache.clearAll();
     }
 
-    // =========================================================================
-    // Debug / İstatistik
-    // =========================================================================
-
-    /** Contamination tespiti yapılan chunk sayısı. */
+    /**
+     * Debug: verified blok sayısı.
+     */
     public static int getCacheSize() {
-        return CONTAMINATED.size();
+        return BlockVerificationCache.getVerifiedCount();
     }
 
-    /** Verilen chunk'ta contaminated blok türlerini döner (debug). */
-    public static Set<Block> getContaminatedTypes(ChunkPos cp) {
-        Set<Block> set = CONTAMINATED.get(cp.toLong());
-        return set == null ? Collections.emptySet() : Collections.unmodifiableSet(set);
-    }
-
-    /** Verilen chunk'ta belirli blok türünün ham sayısını döner (debug). */
-    public static int getRawCount(ChunkPos cp, Block block) {
-        ConcurrentHashMap<Block, Integer> counts = CHUNK_COUNTS.get(cp.toLong());
-        return counts == null ? 0 : counts.getOrDefault(block, 0);
-    }
+    // V3 ile uyumluluk — chunk counts artık yok, no-op
+    public static void registerChunkCounts(ChunkPos cp, Map<Block, Integer> rawCounts) { /* V4: removed */ }
 
     private AntiXrayFilter() {}
 }

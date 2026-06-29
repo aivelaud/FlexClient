@@ -3,9 +3,11 @@ package com.flex.client.xray;
 import com.flex.client.module.ModuleManager;
 import com.flex.client.render.RenderUtils;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.ChunkPos;
@@ -14,11 +16,16 @@ import net.minecraft.util.math.Vec3d;
 import java.util.Collection;
 
 /**
- * XrayRealOreRenderer — AntiXray bypass'ın "gerçek" olarak tanımladığı cevherleri
- * sarı kutu ile vurgular.
+ * XrayRealOreRenderer — Gerçek cevherleri sarı kutu ile vurgular.
  *
- * Yalnızca Xray modülü aktifken ve AntiXray bypass etkinken çalışır.
- * Oyuncu etrafındaki ~4 chunk içindeki gerçek cevherlere sarı outline çizer.
+ * V4 değişikliği:
+ *  AntiXrayBypass.getRealPositionsNear() → yalnızca listeyi sağlar.
+ *  Her blok aynı AntiXrayFilter.isFake() filtresiyle kontrol edilir.
+ *  Bu sayede ESP render ve HUD listesi TUTARLI olur:
+ *  Listede ne varsa ekranda da o görünür.
+ *
+ * V3 hatası: Filtre yalnızca listeye uygulanıyordu, ESP render
+ * filtresiz çalışıyordu → tüm dünya diamond/iron rengine bürünüyordu.
  */
 public class XrayRealOreRenderer {
 
@@ -33,21 +40,35 @@ public class XrayRealOreRenderer {
         if (!ModuleManager.isEnabled("Xray")) return;
         if (!AntiXrayBypass.isBypassActive()) return;
 
+        ClientWorld world = mc.world;
         MatrixStack matrices = ctx.matrixStack();
         Camera camera = ctx.camera();
         Vec3d camPos = camera.getPos();
 
         BlockPos playerPos = mc.player.getBlockPos();
-        Collection<BlockPos> realPositions = AntiXrayBypass.getRealPositionsNear(playerPos, CHUNK_RADIUS);
+
+        // AntiXrayBypass'ın "gerçek" aday listesini al
+        Collection<BlockPos> candidates = AntiXrayBypass.getRealPositionsNear(playerPos, CHUNK_RADIUS);
 
         int drawn = 0;
-        for (BlockPos pos : realPositions) {
+        for (BlockPos pos : candidates) {
             if (drawn >= MAX_BLOCKS_TO_RENDER) break;
 
+            // ── V4 ESP FİLTRESİ ───────────────────────────────────────────────
+            // Listede ne varsa render'da da aynı filtre uygulanır.
+            // Bu sayede "tüm dünya diamond" sorunu ortadan kalkar.
+            try {
+                Block block = world.getBlockState(pos).getBlock();
+                if (AntiXrayFilter.isFake(world, pos, block)) continue;
+            } catch (Exception ignored) {
+                continue; // Erişilemeyen blok → atla
+            }
+            // ─────────────────────────────────────────────────────────────────
+
             Box box = new Box(
-                pos.getX() - camPos.x,
-                pos.getY() - camPos.y,
-                pos.getZ() - camPos.z,
+                pos.getX()       - camPos.x,
+                pos.getY()       - camPos.y,
+                pos.getZ()       - camPos.z,
                 pos.getX() + 1.0 - camPos.x,
                 pos.getY() + 1.0 - camPos.y,
                 pos.getZ() + 1.0 - camPos.z
