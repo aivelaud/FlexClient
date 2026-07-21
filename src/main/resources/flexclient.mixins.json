@@ -21,7 +21,11 @@
       "ChamsEntityMixin",
       "NoHurtCamMixin",
       "XRayModule",
-      "SpeedModule"
+      "SpeedModule",
+      "FovMixin",
+      "GameRendererMixin",
+      "AutoTotemMixin",
+      "VelocityMixin"
     ],
     "injectors": {
       "defaultRequire": 0

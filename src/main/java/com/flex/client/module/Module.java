@@ -283,6 +283,47 @@ public class Module {
             case "FreeLook":
                 boolSettings.put("center",       false);
                 break;
+            // ── YENİ MODÜLLER ────────────────────────────────────────
+            case "Timer":
+                floatSettings.put("speed",       2.0f);
+                boolSettings.put("onlyWorld",    false);
+                break;
+            case "BowAimbot":
+                boolSettings.put("hitPlayers",   true);
+                boolSettings.put("hitMobs",      true);
+                boolSettings.put("instant",      false);
+                floatSettings.put("fovAngle",    60.0f);
+                floatSettings.put("speed",       3.0f);
+                break;
+            case "Surround":
+                stringSettings.put("material",   "Obsidian");
+                boolSettings.put("rotate",       true);
+                boolSettings.put("onlyGround",   true);
+                boolSettings.put("center",       true);
+                break;
+            case "AutoReconnect":
+                intSettings.put("delay",         5);
+                boolSettings.put("chat",         true);
+                break;
+            case "BetterSprint":
+                boolSettings.put("legit",        false);
+                boolSettings.put("stopInWater",  true);
+                break;
+            case "Blink":
+                intSettings.put("limit",         100);
+                boolSettings.put("showGhost",    true);
+                break;
+            case "PacketFly":
+                floatSettings.put("speed",       0.5f);
+                floatSettings.put("upSpeed",     0.3f);
+                boolSettings.put("strict",       false);
+                break;
+            case "ClickAura":
+                boolSettings.put("hitPlayers",   true);
+                boolSettings.put("hitMobs",      true);
+                intSettings.put("cps",           10);
+                floatSettings.put("range",       4.5f);
+                break;
             default: break;
         }
     }

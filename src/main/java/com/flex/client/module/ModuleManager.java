@@ -74,6 +74,16 @@ public class ModuleManager {
         reg("HandView",      "Render",   "El animasyonlarını özelleştirir");
         reg("FreeLook",      "Render",   "Bakış açısını serbestçe döndürür");
         reg("NoRender",      "Render",   "Ateş/hava durumu gibi gereksiz efektleri kaldırır");
+
+        // ── YENİ MODÜLLER ────────────────────────────────────────────
+        reg("Timer",         "World",    "Oyun hız çarpanını değiştirir (0.5x – 10x)");
+        reg("BowAimbot",     "Combat",   "Yay çekerken düşmanlara otomatik nişan alır");
+        reg("Surround",      "Combat",   "Etrafına obsidyen/blok yerleştirerek korur");
+        reg("AutoReconnect", "Misc",     "Sunucudan atılınca belirli süre sonra yeniden bağlanır");
+        reg("BetterSprint",  "Movement", "Sprint'i tüm yönlere genişletir, savaş kesilmesini azaltır");
+        reg("Blink",         "Movement", "Paketleri biriktirir, toggle'da toplu gönderir");
+        reg("PacketFly",     "Movement", "Sunucu tarafını atlatarak uçuş sağlar");
+        reg("ClickAura",     "Combat",   "Tıklarken etraftaki hedefe otomatik saldırır");
     }
 
     private static void reg(String n, String c, String d) { modules.add(new Module(n, c, d)); }

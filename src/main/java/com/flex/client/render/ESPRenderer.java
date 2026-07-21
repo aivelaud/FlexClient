@@ -3,6 +3,9 @@ package com.flex.client.render;
 import com.flex.client.module.Module;
 import com.flex.client.module.ModuleManager;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.*;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -13,12 +16,14 @@ import net.minecraft.entity.*;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.AnimalEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.chunk.ChunkStatus;
 import net.minecraft.world.chunk.WorldChunk;
 import org.joml.Matrix4f;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -39,6 +44,10 @@ public class ESPRenderer {
     private static final int COLOR_TRACER_C = 0xBBFFAA00;
     private static final int COLOR_OUTLINE  = 0xFF00FF88;
     private static final int COLOR_FILL     = 0x2200FF88;
+    // HoleESP renkleri
+    private static final int COLOR_HOLE_BEDROCK  = 0xAA00FF44; // yeşil — tam bedrock
+    private static final int COLOR_HOLE_OBSIDIAN = 0xAA3399FF; // mavi  — obsidyen
+    private static final int COLOR_HOLE_PARTIAL  = 0xAAFFAA00; // sarı  — karışık
 
     public static void render(WorldRenderContext ctx) {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -52,8 +61,9 @@ public class ESPRenderer {
         boolean tracersEnabled   = ModuleManager.isEnabled("Tracers");
         boolean storageEnabled   = ModuleManager.isEnabled("StorageESP");
         boolean nameTagsEnabled  = ModuleManager.isEnabled("NameTags");
+        boolean holeEspEnabled   = ModuleManager.isEnabled("HoleESP");
 
-        if (!espEnabled && !tracersEnabled && !storageEnabled && !nameTagsEnabled) return;
+        if (!espEnabled && !tracersEnabled && !storageEnabled && !nameTagsEnabled && !holeEspEnabled) return;
 
         Module espMod     = ModuleManager.get("ESP");
         Module tracerMod  = ModuleManager.get("Tracers");
@@ -117,6 +127,7 @@ public class ESPRenderer {
 
         // ── STORAGE ESP ───────────────────────────────────────────
         if (storageEnabled && storageMod != null) {
+
             ClientWorld clientWorld = mc.world;
             int playerCX = (int) mc.player.getX() >> 4;
             int playerCZ = (int) mc.player.getZ() >> 4;
@@ -152,6 +163,77 @@ public class ESPRenderer {
                             Vec3d beCenter = bePos.subtract(camPos);
                             RenderUtils.drawTracer(matrices, Vec3d.ZERO, beCenter, COLOR_TRACER_C, 0.8f);
                         }
+                    }
+                }
+            }
+        }
+
+        // ── HOLE ESP ──────────────────────────────────────────────
+        if (holeEspEnabled) {
+            Module holeMod = ModuleManager.get("HoleESP");
+            boolean checkBedrock  = holeMod == null || holeMod.getSetting("bedrock");
+            boolean checkObsidian = holeMod == null || holeMod.getSetting("obsidian");
+            boolean showPartial   = holeMod != null && holeMod.getSetting("partialHole");
+
+            int px = (int) Math.floor(mc.player.getX());
+            int py = (int) Math.floor(mc.player.getY());
+            int pz = (int) Math.floor(mc.player.getZ());
+            int radius = 6;
+
+            for (int x = px - radius; x <= px + radius; x++) {
+                for (int y = py - 3; y <= py + 3; y++) {
+                    for (int z = pz - radius; z <= pz + radius; z++) {
+                        BlockPos pos = new BlockPos(x, y, z);
+                        // Delik: pos boş (hava), altı ve 4 yanı katı blok
+                        if (!mc.world.getBlockState(pos).isAir()) continue;
+                        if (!mc.world.getBlockState(pos.down()).isSolidBlock(mc.world, pos.down())) continue;
+
+                        BlockPos[] sides = {
+                            pos.north(), pos.south(), pos.east(), pos.west()
+                        };
+
+                        int bedrockCount  = 0;
+                        int obsidianCount = 0;
+                        boolean allSolid  = true;
+
+                        // Altı kontrol et
+                        Block below = mc.world.getBlockState(pos.down()).getBlock();
+                        if (below == Blocks.BEDROCK)  bedrockCount++;
+                        else if (below == Blocks.OBSIDIAN || below == Blocks.CRYING_OBSIDIAN) obsidianCount++;
+
+                        for (BlockPos side : sides) {
+                            BlockState bs = mc.world.getBlockState(side);
+                            if (!bs.isSolidBlock(mc.world, side)) { allSolid = false; break; }
+                            Block b = bs.getBlock();
+                            if (b == Blocks.BEDROCK) bedrockCount++;
+                            else if (b == Blocks.OBSIDIAN || b == Blocks.CRYING_OBSIDIAN) obsidianCount++;
+                        }
+
+                        if (!allSolid && !showPartial) continue;
+                        if (!allSolid && !checkObsidian && !checkBedrock) continue;
+
+                        // Renk seç
+                        int holeColor;
+                        if (!allSolid) {
+                            holeColor = COLOR_HOLE_PARTIAL;
+                        } else if (bedrockCount == 5) {
+                            if (!checkBedrock) continue;
+                            holeColor = COLOR_HOLE_BEDROCK;
+                        } else if (obsidianCount >= 4) {
+                            if (!checkObsidian) continue;
+                            holeColor = COLOR_HOLE_OBSIDIAN;
+                        } else {
+                            holeColor = COLOR_HOLE_PARTIAL;
+                            if (!showPartial) continue;
+                        }
+
+                        // Zemine küçük bir kutu çiz
+                        double wx = x - camPos.x;
+                        double wy = y - camPos.y;
+                        double wz = z - camPos.z;
+                        Box holeBox = new Box(wx + 0.05, wy, wz + 0.05, wx + 0.95, wy + 0.05, wz + 0.95);
+                        RenderUtils.drawBoxFilled(matrices, holeBox, holeColor);
+                        RenderUtils.drawBoxOutline(matrices, holeBox, (holeColor | 0xFF000000), 1.5f);
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.flex.client;
 
+import com.flex.client.config.ConfigManager;
 import com.flex.client.gui.ClickGui;
 import com.flex.client.gui.CrashGuardScreen;
 import com.flex.client.module.Module;
@@ -23,7 +24,9 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class FlexClient implements ClientModInitializer {
 
@@ -34,6 +37,7 @@ public class FlexClient implements ClientModInitializer {
     private static final int GUI_KEY    = GLFW.GLFW_KEY_RIGHT_SHIFT;
     private static boolean wasGuiKey    = false;
     private static boolean wasMouseDown = false;
+    private static final Map<Integer, Boolean> keybindState = new HashMap<>();
 
     private static final int BTN_X = 4, BTN_Y = 4, BTN_W = 72, BTN_H = 14;
 
@@ -41,7 +45,11 @@ public class FlexClient implements ClientModInitializer {
     public void onInitializeClient() {
         INSTANCE = this;
         ModuleManager.init();
+        ConfigManager.load();   // ← config JSON'dan ayarları yükle
         CrashGuard.initialize();
+
+        // ── Kapanışta config kaydet ──────────────────────────────────────
+        Runtime.getRuntime().addShutdownHook(new Thread(ConfigManager::save));
 
         // ── Sunucuya bağlanınca ─────────────────────────────────────────
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
@@ -61,6 +69,7 @@ public class FlexClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ChunkOreScanner.clearAll();
             AntiXrayBypass.reset();
+            ConfigManager.save();   // ← ayrılırken config kaydet
         });
 
         // ── Chunk kaldırılınca: cache temizle ───────────────────────────
@@ -104,6 +113,17 @@ public class FlexClient implements ClientModInitializer {
             boolean kd = GLFW.glfwGetKey(win, GUI_KEY) == GLFW.GLFW_PRESS;
             if (kd && !wasGuiKey) client.execute(() -> client.setScreen(new ClickGui()));
             wasGuiKey = kd;
+
+            // ── Modül keybind kontrol ──────────────────────────────────
+            for (Module m : ModuleManager.modules) {
+                int key = m.getKeybind();
+                if (key < 0) continue;
+                boolean pressed = GLFW.glfwGetKey(win, key) == GLFW.GLFW_PRESS;
+                // Sadece ilk basışta toggle (tuşun bırakılıp tekrar basılmasını bekle)
+                Boolean prev = keybindState.getOrDefault(key, false);
+                if (pressed && !prev) m.toggle();
+                keybindState.put(key, pressed);
+            }
 
             boolean md = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
             if (md && !wasMouseDown) {

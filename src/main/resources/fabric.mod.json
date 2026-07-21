@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "id": "flexclient",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "name": "FlexClient",
-  "description": "FlexClient 3.0 - Professional Hacked Client",
+  "description": "FlexClient 4.0 - Professional Fabric Hacked Client",
   "authors": ["Ugurcan"],
   "environment": "client",
   "entrypoints": {

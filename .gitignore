@@ -38,3 +38,23 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# Replit / Node
+node_modules/
+artifacts/
+lib/*/dist/
+lib/*/*.tsbuildinfo
+scripts/tsconfig.tsbuildinfo
+*.mjs
+*.mjs.map
+.replit
+.replitignore
+.npmrc
+pnpm-lock.yaml
+pnpm-workspace.yaml
+package.json
+tsconfig*.json
+attached_assets/
+.local/
+.agents/
+.cache/
