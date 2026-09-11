@@ -84,6 +84,11 @@ public class ModuleManager {
         reg("Blink",         "Movement", "Paketleri biriktirir, toggle'da toplu gönderir");
         reg("PacketFly",     "Movement", "Sunucu tarafını atlatarak uçuş sağlar");
         reg("ClickAura",     "Combat",   "Tıklarken etraftaki hedefe otomatik saldırır");
+
+        // ── WORLD / COPY ─────────────────────────────────────────────
+        reg("WorldCopy",     "World",    "Çevrendeki dünyayı kopyalar (blok/entity/tile-entity)");
+        reg("LobbyCopy",     "World",    "Lobi yapısını kopyalar (blok/banner/armor-stand)");
+        reg("Mix",           "World",    "Dünya + Lobi kopyalama birleşik modu");
     }
 
     private static void reg(String n, String c, String d) { modules.add(new Module(n, c, d)); }

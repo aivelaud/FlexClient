@@ -324,6 +324,36 @@ public class Module {
                 intSettings.put("cps",           10);
                 floatSettings.put("range",       4.5f);
                 break;
+            // ── WORLD COPY / LOBBY COPY / MIX ────────────────────────
+            case "WorldCopy":
+                stringSettings.put("mode",       "Full");
+                boolSettings.put("saveBlocks",   true);
+                boolSettings.put("saveEntities", true);
+                boolSettings.put("saveTileEntities", true);
+                boolSettings.put("autoSave",     false);
+                intSettings.put("range",         64);
+                intSettings.put("maxBlocks",     50000);
+                break;
+            case "LobbyCopy":
+                stringSettings.put("mode",       "Area");
+                boolSettings.put("saveBlocks",   true);
+                boolSettings.put("saveEntities", false);
+                boolSettings.put("saveArmorStands", true);
+                boolSettings.put("saveBanners",  true);
+                intSettings.put("range",         32);
+                intSettings.put("maxBlocks",     20000);
+                break;
+            case "Mix":
+                stringSettings.put("mode",       "Both");
+                boolSettings.put("worldCopy",    true);
+                boolSettings.put("lobbyCopy",    true);
+                boolSettings.put("saveBlocks",   true);
+                boolSettings.put("saveEntities", true);
+                boolSettings.put("saveTileEntities", true);
+                intSettings.put("worldRange",    64);
+                intSettings.put("lobbyRange",    32);
+                intSettings.put("maxBlocks",     50000);
+                break;
             default: break;
         }
     }

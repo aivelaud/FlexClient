@@ -106,6 +106,9 @@
 | Modül | Açıklama |
 |-------|----------|
 | Timer | Oyun hızını değiştir (0.5x – 10x) 🆕 |
+| WorldCopy | Çevrendeki dünyayı kopyalar — blok, entity, tile-entity kaydeder (Full/BlocksOnly/EntitiesOnly) 🆕 |
+| LobbyCopy | Lobi yapısını kopyalar — blok, armor-stand, banner kaydeder (Area/Full/Structure) 🆕 |
+| Mix | Dünya + Lobi kopyalama birleşik mod — tek tıkla ikisini birden yapar (Both/WorldOnly/LobbyOnly) 🆕 |
 
 ### ⚙️ Misc
 | Modül | Açıklama |

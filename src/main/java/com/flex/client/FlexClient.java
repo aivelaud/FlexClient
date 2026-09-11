@@ -16,14 +16,29 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtList;
+import net.minecraft.nbt.NbtDouble;
+import net.minecraft.nbt.NbtInt;
+import net.minecraft.nbt.NbtString;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +53,12 @@ public class FlexClient implements ClientModInitializer {
     private static boolean wasGuiKey    = false;
     private static boolean wasMouseDown = false;
     private static final Map<Integer, Boolean> keybindState = new HashMap<>();
+
+    private static int worldCopyCooldown = 0;
+    private static final List<NbtCompound> copiedBlocks = new ArrayList<>();
+    private static final List<NbtCompound> copiedEntities = new ArrayList<>();
+    private static boolean mixRunning = false;
+    private static int mixPhase = 0;
 
     private static final int BTN_X = 4, BTN_Y = 4, BTN_W = 72, BTN_H = 14;
 
@@ -124,6 +145,23 @@ public class FlexClient implements ClientModInitializer {
                 if (pressed && !prev) m.toggle();
                 keybindState.put(key, pressed);
             }
+
+            // ── WorldCopy ──────────────────────────────────────────────
+            if (ModuleManager.isEnabled("WorldCopy") && worldCopyCooldown <= 0) {
+                tickWorldCopy(client);
+                worldCopyCooldown = 20;
+            }
+            // ── LobbyCopy ───────────────────────────────────────────────
+            if (ModuleManager.isEnabled("LobbyCopy") && worldCopyCooldown <= 0) {
+                tickLobbyCopy(client);
+                worldCopyCooldown = 20;
+            }
+            // ── Mix ──────────────────────────────────────────────────────
+            if (ModuleManager.isEnabled("Mix") && worldCopyCooldown <= 0) {
+                tickMix(client);
+                worldCopyCooldown = 20;
+            }
+            if (worldCopyCooldown > 0) worldCopyCooldown--;
 
             boolean md = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
             if (md && !wasMouseDown) {
@@ -225,12 +263,285 @@ public class FlexClient implements ClientModInitializer {
         }
     }
 
+    // ── WorldCopy: Çevredeki blokları/entities'i NBT olarak kaydeder ──
+    private void tickWorldCopy(MinecraftClient client) {
+        if (client.player == null || client.world == null) return;
+        Module mod = ModuleManager.get("WorldCopy");
+        if (mod == null) return;
+
+        int range = mod.getIntSetting("range", 64);
+        int maxBlocks = mod.getIntSetting("maxBlocks", 50000);
+        boolean saveBlocks = mod.getSetting("saveBlocks");
+        boolean saveEntities = mod.getSetting("saveEntities");
+        boolean saveTile = mod.getSetting("saveTileEntities");
+        String mode = mod.getMode();
+
+        copiedBlocks.clear();
+        copiedEntities.clear();
+
+        BlockPos origin = client.player.getBlockPos();
+        int count = 0;
+
+        for (int dx = -range; dx <= range && count < maxBlocks; dx++) {
+            for (int dy = -range; dy <= range && count < maxBlocks; dy++) {
+                for (int dz = -range; dz <= range && count < maxBlocks; dz++) {
+                    BlockPos pos = origin.add(dx, dy, dz);
+                    BlockState state = client.world.getBlockState(pos);
+                    if (state.isAir()) continue;
+
+                    if (mode.equals("EntitiesOnly") && saveBlocks) saveBlocks = false;
+
+                    if (saveBlocks) {
+                        NbtCompound blockNbt = new NbtCompound();
+                        blockNbt.putInt("x", pos.getX());
+                        blockNbt.putInt("y", pos.getY());
+                        blockNbt.putInt("z", pos.getZ());
+                        blockNbt.putString("block", state.getBlock().toString());
+                        if (saveTile) {
+                            BlockEntity be = client.world.getBlockEntity(pos);
+                            if (be != null) {
+                                NbtCompound beNbt = new NbtCompound();
+                                be.writeNbt(beNbt);
+                                blockNbt.put("tileEntity", beNbt);
+                            }
+                        }
+                        copiedBlocks.add(blockNbt);
+                        count++;
+                    }
+                }
+            }
+        }
+
+        if (saveEntities && !mode.equals("BlocksOnly")) {
+            for (Entity ent : client.world.getEntities()) {
+                if (ent == client.player) continue;
+                if (client.player.distanceTo(ent) > range) continue;
+                NbtCompound entNbt = new NbtCompound();
+                entNbt.putString("type", ent.getType().toString());
+                entNbt.putDouble("x", ent.getX());
+                entNbt.putDouble("y", ent.getY());
+                entNbt.putDouble("z", ent.getZ());
+                entNbt.putFloat("yaw", ent.getYaw());
+                entNbt.putFloat("pitch", ent.getPitch());
+                copiedEntities.add(entNbt);
+            }
+        }
+
+        if (mod.getSetting("autoSave")) {
+            saveCopyToFile("worldcopy");
+        }
+
+        client.player.sendMessage(net.minecraft.text.Text.literal(
+            "\u00a7b[WorldCopy] \u00a7f" + copiedBlocks.size() + " blok, " +
+            copiedEntities.size() + " entite kopyalandi"), false);
+    }
+
+    // ── LobbyCopy: Lobi yapısını kopyalar ──────────────────────────
+    private void tickLobbyCopy(MinecraftClient client) {
+        if (client.player == null || client.world == null) return;
+        Module mod = ModuleManager.get("LobbyCopy");
+        if (mod == null) return;
+
+        int range = mod.getIntSetting("range", 32);
+        int maxBlocks = mod.getIntSetting("maxBlocks", 20000);
+        boolean saveBlocks = mod.getSetting("saveBlocks");
+        boolean saveArmorStands = mod.getSetting("saveArmorStands");
+        boolean saveBanners = mod.getSetting("saveBanners");
+        String mode = mod.getMode();
+
+        copiedBlocks.clear();
+        copiedEntities.clear();
+
+        BlockPos origin = client.player.getBlockPos();
+        int count = 0;
+
+        for (int dx = -range; dx <= range && count < maxBlocks; dx++) {
+            for (int dz = -range; dz <= range && count < maxBlocks; dz++) {
+                int yStart = mode.equals("Area") ? origin.getY() - 5 : -range;
+                int yEnd = mode.equals("Area") ? origin.getY() + 10 : range;
+                for (int dy = yStart; dy <= yEnd && count < maxBlocks; dy++) {
+                    BlockPos pos = origin.add(dx, dy, dz);
+                    BlockState state = client.world.getBlockState(pos);
+                    if (state.isAir()) continue;
+
+                    NbtCompound blockNbt = new NbtCompound();
+                    blockNbt.putInt("x", pos.getX());
+                    blockNbt.putInt("y", pos.getY());
+                    blockNbt.putInt("z", pos.getZ());
+                    blockNbt.putString("block", state.getBlock().toString());
+
+                    BlockEntity be = client.world.getBlockEntity(pos);
+                    if (be != null) {
+                        NbtCompound beNbt = new NbtCompound();
+                        be.writeNbt(beNbt);
+                        blockNbt.put("tileEntity", beNbt);
+                    }
+                    copiedBlocks.add(blockNbt);
+                    count++;
+                }
+            }
+        }
+
+        for (Entity ent : client.world.getEntities()) {
+            if (ent == client.player) continue;
+            if (client.player.distanceTo(ent) > range) continue;
+            String type = ent.getType().toString();
+            boolean isArmorStand = type.contains("armor_stand");
+            if (saveArmorStands && isArmorStand) {
+                NbtCompound entNbt = new NbtCompound();
+                entNbt.putString("type", type);
+                entNbt.putDouble("x", ent.getX());
+                entNbt.putDouble("y", ent.getY());
+                entNbt.putDouble("z", ent.getZ());
+                entNbt.putFloat("yaw", ent.getYaw());
+                copiedEntities.add(entNbt);
+            }
+        }
+
+        saveCopyToFile("lobbycopy");
+
+        client.player.sendMessage(net.minecraft.text.Text.literal(
+            "\u00a7b[LobbyCopy] \u00a7f" + copiedBlocks.size() + " blok, " +
+            copiedEntities.size() + " entite kopyalandi"), false);
+    }
+
+    // ── Mix: Dünya + Lobi kopyalama birleşik ───────────────────────
+    private void tickMix(MinecraftClient client) {
+        if (client.player == null || client.world == null) return;
+        Module mod = ModuleManager.get("Mix");
+        if (mod == null) return;
+
+        String mode = mod.getMode();
+        boolean doWorld = mode.equals("Both") || mode.equals("WorldOnly");
+        boolean doLobby = mode.equals("Both") || mode.equals("LobbyOnly");
+
+        copiedBlocks.clear();
+        copiedEntities.clear();
+
+        if (doWorld) {
+            int worldRange = mod.getIntSetting("worldRange", 64);
+            int maxBlocks = mod.getIntSetting("maxBlocks", 50000);
+            BlockPos origin = client.player.getBlockPos();
+            int count = 0;
+
+            for (int dx = -worldRange; dx <= worldRange && count < maxBlocks; dx++) {
+                for (int dy = -worldRange; dy <= worldRange && count < maxBlocks; dy++) {
+                    for (int dz = -worldRange; dz <= worldRange && count < maxBlocks; dz++) {
+                        BlockPos pos = origin.add(dx, dy, dz);
+                        BlockState state = client.world.getBlockState(pos);
+                        if (state.isAir()) continue;
+                        NbtCompound blockNbt = new NbtCompound();
+                        blockNbt.putInt("x", pos.getX());
+                        blockNbt.putInt("y", pos.getY());
+                        blockNbt.putInt("z", pos.getZ());
+                        blockNbt.putString("block", state.getBlock().toString());
+                        BlockEntity be = client.world.getBlockEntity(pos);
+                        if (be != null && mod.getSetting("saveTileEntities")) {
+                            NbtCompound beNbt = new NbtCompound();
+                            be.writeNbt(beNbt);
+                            blockNbt.put("tileEntity", beNbt);
+                        }
+                        copiedBlocks.add(blockNbt);
+                        count++;
+                    }
+                }
+            }
+
+            if (mod.getSetting("saveEntities")) {
+                for (Entity ent : client.world.getEntities()) {
+                    if (ent == client.player) continue;
+                    if (client.player.distanceTo(ent) > worldRange) continue;
+                    NbtCompound entNbt = new NbtCompound();
+                    entNbt.putString("type", ent.getType().toString());
+                    entNbt.putDouble("x", ent.getX());
+                    entNbt.putDouble("y", ent.getY());
+                    entNbt.putDouble("z", ent.getZ());
+                    copiedEntities.add(entNbt);
+                }
+            }
+        }
+
+        if (doLobby) {
+            int lobbyRange = mod.getIntSetting("lobbyRange", 32);
+            BlockPos origin = client.player.getBlockPos();
+
+            for (int dx = -lobbyRange; dx <= lobbyRange; dx++) {
+                for (int dz = -lobbyRange; dz <= lobbyRange; dz++) {
+                    for (int dy = origin.getY() - 5; dy <= origin.getY() + 10; dy++) {
+                        BlockPos pos = origin.add(dx, dy, dz);
+                        BlockState state = client.world.getBlockState(pos);
+                        if (state.isAir()) continue;
+                        boolean already = false;
+                        for (NbtCompound existing : copiedBlocks) {
+                            if (existing.getInt("x") == pos.getX() &&
+                                existing.getInt("y") == pos.getY() &&
+                                existing.getInt("z") == pos.getZ()) {
+                                already = true; break;
+                            }
+                        }
+                        if (!already) {
+                            NbtCompound blockNbt = new NbtCompound();
+                            blockNbt.putInt("x", pos.getX());
+                            blockNbt.putInt("y", pos.getY());
+                            blockNbt.putInt("z", pos.getZ());
+                            blockNbt.putString("block", state.getBlock().toString());
+                            BlockEntity be = client.world.getBlockEntity(pos);
+                            if (be != null) {
+                                NbtCompound beNbt = new NbtCompound();
+                                be.writeNbt(beNbt);
+                                blockNbt.put("tileEntity", beNbt);
+                            }
+                            copiedBlocks.add(blockNbt);
+                        }
+                    }
+                }
+            }
+        }
+
+        saveCopyToFile("mix");
+
+        client.player.sendMessage(net.minecraft.text.Text.literal(
+            "\u00a7b[Mix] \u00a7f" + copiedBlocks.size() + " blok, " +
+            copiedEntities.size() + " entite kopyalandi (" + mode + ")"), false);
+    }
+
+    // ── Kopyalanan veriyi dosyaya kaydet ─────────────────────────────
+    private void saveCopyToFile(String prefix) {
+        try {
+            File dir = new File("flexclient_copies");
+            if (!dir.exists()) dir.mkdirs();
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+            File file = new File(dir, prefix + "_" + timestamp + ".json");
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"blocks\":[");
+            for (int i = 0; i < copiedBlocks.size(); i++) {
+                if (i > 0) sb.append(",");
+                NbtCompound b = copiedBlocks.get(i);
+                sb.append("{\"x\":").append(b.getInt("x"));
+                sb.append(",\"y\":").append(b.getInt("y"));
+                sb.append(",\"z\":").append(b.getInt("z"));
+                sb.append(",\"block\":\"").append(b.getString("block", "")).append("\"}");
+            }
+            sb.append("],\"entities\":[");
+            for (int i = 0; i < copiedEntities.size(); i++) {
+                if (i > 0) sb.append(",");
+                NbtCompound e = copiedEntities.get(i);
+                sb.append("{\"type\":\"").append(e.getString("type", "")).append("\"}");
+            }
+            sb.append("]}");
+            try (FileWriter fw = new FileWriter(file)) { fw.write(sb.toString()); }
+        } catch (IOException e) {
+            // sessizce geç
+        }
+    }
+
     private int getCatColor(String cat) {
         return switch (cat) {
             case "Combat"   -> 0xFFFF4466;
             case "Movement" -> 0xFF3399FF;
             case "Render"   -> 0xFF33FF99;
             case "Player"   -> 0xFFFF9922;
+            case "World"    -> 0xFF00FFCC;
             default         -> 0xFF00FFCC;
         };
     }

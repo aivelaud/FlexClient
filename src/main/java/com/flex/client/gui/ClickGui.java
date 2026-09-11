@@ -31,9 +31,9 @@ public class ClickGui extends Screen {
     private static final int TEXT_DIM    = 0xFF555577;
     private static final int DIVIDER     = 0xFF1A1A3A;
 
-    private static final int[] CAT_COLORS = { ACCENT_RED, ACCENT_BLUE, ACCENT_GRN, ACCENT_ORG };
-    private static final String[] CATEGORIES = { "Combat", "Movement", "Render", "Player" };
-    private static final String[] CAT_ICONS  = { "\u2694", "\u26A1", "\u25A6", "\u2764" };
+    private static final int[] CAT_COLORS = { ACCENT_RED, ACCENT_BLUE, ACCENT_GRN, ACCENT_ORG, ACCENT_CYAN };
+    private static final String[] CATEGORIES = { "Combat", "Movement", "Render", "Player", "World" };
+    private static final String[] CAT_ICONS  = { "\u2694", "\u26A1", "\u25A6", "\u2764", "\u25C9" };
 
     // Mode seçenekleri — her modül için
     private static final Map<String, String[]> MODE_OPTIONS = new HashMap<>();
@@ -47,6 +47,9 @@ public class ClickGui extends Screen {
         MODE_OPTIONS.put("Jesus",       new String[]{"Solid","Bounce","Sneak"});
         MODE_OPTIONS.put("ESP",         new String[]{"Box","Outline","Corner"});
         MODE_OPTIONS.put("Tracers",     new String[]{"Eyes","Crosshair"});
+        MODE_OPTIONS.put("WorldCopy",   new String[]{"Full","BlocksOnly","EntitiesOnly"});
+        MODE_OPTIONS.put("LobbyCopy",   new String[]{"Area","Full","Structure"});
+        MODE_OPTIONS.put("Mix",         new String[]{"Both","WorldOnly","LobbyOnly"});
     }
 
     /**
