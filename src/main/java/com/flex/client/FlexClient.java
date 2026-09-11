@@ -506,9 +506,12 @@ public class FlexClient implements ClientModInitializer {
     }
 
     // ── Kopyalanan veriyi dosyaya kaydet ─────────────────────────────
+    private static File lastSavedFile = null;
+
     private void saveCopyToFile(String prefix) {
         try {
-            File dir = new File("flexclient_copies");
+            File mcDir = MinecraftClient.getInstance().runDirectory;
+            File dir = new File(mcDir, "flexclient_copies");
             if (!dir.exists()) dir.mkdirs();
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
             File file = new File(dir, prefix + "_" + timestamp + ".json");
@@ -530,8 +533,20 @@ public class FlexClient implements ClientModInitializer {
             }
             sb.append("]}");
             try (FileWriter fw = new FileWriter(file)) { fw.write(sb.toString()); }
+            lastSavedFile = file;
+            if (MinecraftClient.getInstance().player != null) {
+                MinecraftClient.getInstance().player.sendMessage(
+                    net.minecraft.text.Text.literal(
+                        "\u00a7a[FlexClient] \u00a7fKaydedildi: \u00a7b" + file.getAbsolutePath()),
+                    false);
+            }
         } catch (IOException e) {
-            // sessizce geç
+            if (MinecraftClient.getInstance().player != null) {
+                MinecraftClient.getInstance().player.sendMessage(
+                    net.minecraft.text.Text.literal(
+                        "\u00a7c[FlexClient] Kaydetme hatasi: " + e.getMessage()),
+                    false);
+            }
         }
     }
 
