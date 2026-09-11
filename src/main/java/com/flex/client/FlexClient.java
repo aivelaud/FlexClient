@@ -20,6 +20,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.MinecraftClient;
+import java.lang.reflect.Method;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -301,7 +302,7 @@ public class FlexClient implements ClientModInitializer {
                             BlockEntity be = client.world.getBlockEntity(pos);
                             if (be != null) {
                                 NbtCompound beNbt = new NbtCompound();
-                                be.writeNbt(beNbt);
+                                writeBlockEntityNbt(be, beNbt);
                                 blockNbt.put("tileEntity", beNbt);
                             }
                         }
@@ -373,7 +374,7 @@ public class FlexClient implements ClientModInitializer {
                     BlockEntity be = client.world.getBlockEntity(pos);
                     if (be != null) {
                         NbtCompound beNbt = new NbtCompound();
-                        be.writeNbt(beNbt);
+                        writeBlockEntityNbt(be, beNbt);
                         blockNbt.put("tileEntity", beNbt);
                     }
                     copiedBlocks.add(blockNbt);
@@ -438,7 +439,7 @@ public class FlexClient implements ClientModInitializer {
                         BlockEntity be = client.world.getBlockEntity(pos);
                         if (be != null && mod.getSetting("saveTileEntities")) {
                             NbtCompound beNbt = new NbtCompound();
-                            be.writeNbt(beNbt);
+                            writeBlockEntityNbt(be, beNbt);
                             blockNbt.put("tileEntity", beNbt);
                         }
                         copiedBlocks.add(blockNbt);
@@ -488,7 +489,7 @@ public class FlexClient implements ClientModInitializer {
                             BlockEntity be = client.world.getBlockEntity(pos);
                             if (be != null) {
                                 NbtCompound beNbt = new NbtCompound();
-                                be.writeNbt(beNbt);
+                                writeBlockEntityNbt(be, beNbt);
                                 blockNbt.put("tileEntity", beNbt);
                             }
                             copiedBlocks.add(blockNbt);
@@ -508,6 +509,14 @@ public class FlexClient implements ClientModInitializer {
     // ── Kopyalanan veriyi dosyaya kaydet ─────────────────────────────
     private static File lastSavedFile = null;
 
+    private void writeBlockEntityNbt(BlockEntity be, NbtCompound nbt) {
+        try {
+            Method m = BlockEntity.class.getDeclaredMethod("writeNbt", NbtCompound.class);
+            m.setAccessible(true);
+            m.invoke(be, nbt);
+        } catch (Exception ignored) {}
+    }
+
     private void saveCopyToFile(String prefix) {
         try {
             File mcDir = MinecraftClient.getInstance().runDirectory;
@@ -523,13 +532,13 @@ public class FlexClient implements ClientModInitializer {
                 sb.append("{\"x\":").append(b.getInt("x"));
                 sb.append(",\"y\":").append(b.getInt("y"));
                 sb.append(",\"z\":").append(b.getInt("z"));
-                sb.append(",\"block\":\"").append(b.getString("block", "")).append("\"}");
+                sb.append(",\"block\":\"").append(b.getString("block")).append("\"}");
             }
             sb.append("],\"entities\":[");
             for (int i = 0; i < copiedEntities.size(); i++) {
                 if (i > 0) sb.append(",");
                 NbtCompound e = copiedEntities.get(i);
-                sb.append("{\"type\":\"").append(e.getString("type", "")).append("\"}");
+                sb.append("{\"type\":\"").append(e.getString("type")).append("\"}");
             }
             sb.append("]}");
             try (FileWriter fw = new FileWriter(file)) { fw.write(sb.toString()); }
