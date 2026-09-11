@@ -352,7 +352,7 @@ public class Module {
                 boolSettings.put("saveTileEntities", true);
                 intSettings.put("worldRange",    64);
                 intSettings.put("lobbyRange",    32);
-                intSettings.put("maxBlocks",     50000);
+                intSettings.put("maxBlocks",     500000);
                 break;
             case "Paste":
                 stringSettings.put("mode",       "Relative");

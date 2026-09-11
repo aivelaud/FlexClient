@@ -91,6 +91,28 @@ public class ClickGui extends Screen {
     private int    listAreaBotY  = 0;
     private float  openAnim      = 0f;
 
+    // ── INT adım (step) kutucuk state ───────────────────────────
+    private final Map<String, Integer> intSteps = new HashMap<>();
+    private String  focusedStepKey = null;
+    private final StringBuilder stepBuffer = new StringBuilder();
+
+    private int getIntStep(String key) {
+        if ("Mix.maxBlocks".equals(key)) return intSteps.getOrDefault(key, 500000);
+        return intSteps.getOrDefault(key, 1);
+    }
+
+    private void commitStepBuffer() {
+        if (focusedStepKey == null) return;
+        try {
+            int val = Integer.parseInt(stepBuffer.toString());
+            if (val < 1) val = 1;
+            intSteps.put(focusedStepKey, val);
+        } catch (NumberFormatException ignored) {
+        }
+        focusedStepKey = null;
+        stepBuffer.setLength(0);
+    }
+
     public ClickGui() { super(Text.literal("FlexClient")); }
 
     // ═════════════════════════════════════════════════════════════
@@ -307,7 +329,7 @@ public class ClickGui extends Screen {
             }
         }
 
-        // ── INT Ayarlar ───────────────────────────────────────────
+        // ── INT Ayarlar (adım kutucuklu) ──────────────────────────
         Map<String, Integer> ints = mod.getIntSettings();
         if (!ints.isEmpty()) {
             py += 2; divider(ctx, rx, rx + RIGHT_W - 2, py, alpha); py += 8;
@@ -317,13 +339,48 @@ public class ClickGui extends Screen {
                 ctx.fill(rx + pad, py, rx + RIGHT_W - pad, py + 16, applyAlpha(BG_ITEM, alpha));
                 ctx.drawTextWithShadow(textRenderer, "\u00a77" + camelToNice(e.getKey()),
                     rx + pad + 4, py + 4, applyAlpha(TEXT_GRAY, alpha));
-                int vx = rx + RIGHT_W - pad - 52;
-                ctx.fill(vx, py + 2, vx + 14, py + 14, applyAlpha(0xFF1A0A0A, alpha));
-                ctx.fill(vx + 18, py + 2, vx + 36, py + 14, applyAlpha(0xFF0A1A0A, alpha));
-                ctx.drawTextWithShadow(textRenderer, "\u00a7c-", vx + 4, py + 4, applyAlpha(ACCENT_RED, alpha));
-                ctx.drawTextWithShadow(textRenderer, "\u00a7e" + e.getValue(),
-                    rx + RIGHT_W - pad - 60, py + 4, applyAlpha(ACCENT_YELL, alpha));
-                ctx.drawTextWithShadow(textRenderer, "\u00a7a+", vx + 22, py + 4, applyAlpha(ACCENT_GRN, alpha));
+
+                int rightEdge = rx + RIGHT_W - pad;
+                int stepBoxW  = 48;
+                int stepBoxX  = rightEdge - stepBoxW;
+                int plusBtnX  = stepBoxX - 4 - 14;
+                int valEndX   = plusBtnX - 4;
+                int minusBtnX = valEndX - 4 - 28 - 14;
+
+                // − butonu
+                ctx.fill(minusBtnX, py + 2, minusBtnX + 14, py + 14, applyAlpha(0xFF1A0A0A, alpha));
+                ctx.drawTextWithShadow(textRenderer, "\u00a7c-", minusBtnX + 4, py + 4, applyAlpha(ACCENT_RED, alpha));
+
+                // değer
+                String valStr = String.valueOf(e.getValue());
+                ctx.drawTextWithShadow(textRenderer, "\u00a7e" + valStr,
+                    valEndX - textRenderer.getWidth(valStr) - 2, py + 4, applyAlpha(ACCENT_YELL, alpha));
+
+                // + butonu
+                ctx.fill(plusBtnX, py + 2, plusBtnX + 14, py + 14, applyAlpha(0xFF0A1A0A, alpha));
+                ctx.drawTextWithShadow(textRenderer, "\u00a7a+", plusBtnX + 4, py + 4, applyAlpha(ACCENT_GRN, alpha));
+
+                // adım kutucuğu
+                String stepKey = mod.getName() + "." + e.getKey();
+                boolean stepFocused = stepKey.equals(focusedStepKey);
+                ctx.fill(stepBoxX, py + 1, stepBoxX + stepBoxW, py + 15,
+                    applyAlpha(stepFocused ? 0xFF0A2A1A : 0xFF121228, alpha));
+                ctx.fill(stepBoxX, py + 1, stepBoxX + 1, py + 15,
+                    applyAlpha(stepFocused ? ACCENT_GRN : DIVIDER, alpha));
+
+                String stepText = stepFocused ? stepBuffer.toString() : String.valueOf(getIntStep(stepKey));
+                if (stepText.isEmpty()) stepText = "0";
+                int stepTextW = textRenderer.getWidth(stepText);
+                ctx.drawTextWithShadow(textRenderer, "\u00a7a" + stepText,
+                    stepBoxX + stepBoxW / 2 - stepTextW / 2, py + 4, applyAlpha(ACCENT_GRN, alpha));
+                if (stepFocused) {
+                    ctx.drawTextWithShadow(textRenderer, "\u00a7e|",
+                        stepBoxX + stepBoxW / 2 + stepTextW / 2, py + 4, applyAlpha(ACCENT_YELL, alpha));
+                }
+                // küçük "adım" etiketi
+                ctx.drawTextWithShadow(textRenderer, "\u00a78ad\u0131m",
+                    stepBoxX + 2, py + 15, applyAlpha(TEXT_DIM, alpha / 2));
+
                 py += 18;
             }
         }
@@ -435,6 +492,7 @@ public class ClickGui extends Screen {
     // ═════════════════════════════════════════════════════════════
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
+        commitStepBuffer();
         int sH = this.height, sW = this.width;
         int guiH = sH - 20, guiX = (sW - LEFT_W - RIGHT_W - 4) / 2, guiY = 10;
         int tabY = guiY + 31, tabW = (LEFT_W - 2) / CATEGORIES.length;
@@ -530,17 +588,38 @@ public class ClickGui extends Screen {
             }
         }
 
-        // Int
+        // Int (adım kutucuklu)
         Map<String, Integer> ints = mod.getIntSettings();
         if (!ints.isEmpty()) {
             py += 2 + 8 + 13;
             for (Map.Entry<String, Integer> e : ints.entrySet()) {
-                int vx = rx + RIGHT_W - pad - 52;
-                if (my >= py + 2 && my <= py + 14) {
-                    if (mx >= vx && mx <= vx + 14)
-                        { mod.setIntSetting(e.getKey(), Math.max(0, e.getValue() - 1)); return; }
-                    if (mx >= vx + 18 && mx <= vx + 36)
-                        { mod.setIntSetting(e.getKey(), e.getValue() + 1); return; }
+                int rightEdge = rx + RIGHT_W - pad;
+                int stepBoxW  = 48;
+                int stepBoxX  = rightEdge - stepBoxW;
+                int plusBtnX  = stepBoxX - 4 - 14;
+                int valEndX   = plusBtnX - 4;
+                int minusBtnX = valEndX - 4 - 28 - 14;
+                String stepKey = mod.getName() + "." + e.getKey();
+                if (my >= py + 1 && my <= py + 15) {
+                    // − butonu
+                    if (mx >= minusBtnX && mx <= minusBtnX + 14) {
+                        int step = getIntStep(stepKey);
+                        mod.setIntSetting(e.getKey(), Math.max(0, e.getValue() - step));
+                        return;
+                    }
+                    // + butonu
+                    if (mx >= plusBtnX && mx <= plusBtnX + 14) {
+                        int step = getIntStep(stepKey);
+                        mod.setIntSetting(e.getKey(), e.getValue() + step);
+                        return;
+                    }
+                    // adım kutucuğu
+                    if (mx >= stepBoxX && mx <= stepBoxX + stepBoxW) {
+                        focusedStepKey = stepKey;
+                        stepBuffer.setLength(0);
+                        stepBuffer.append(getIntStep(stepKey));
+                        return;
+                    }
                 }
                 py += 18;
             }
@@ -583,7 +662,21 @@ public class ClickGui extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int mods) {
-        if (keyCode == 256) { this.close(); return true; }
+        if (keyCode == 256) {
+            if (focusedStepKey != null) { commitStepBuffer(); return true; }
+            this.close(); return true;
+        }
+        if (focusedStepKey != null) {
+            if (keyCode == 259 && stepBuffer.length() > 0) {
+                stepBuffer.deleteCharAt(stepBuffer.length() - 1);
+                return true;
+            }
+            if (keyCode == 257 || keyCode == 335) {
+                commitStepBuffer();
+                return true;
+            }
+            return false;
+        }
         if (searchFocused && keyCode == 259 && !searchQuery.isEmpty()) {
             searchQuery = searchQuery.substring(0, searchQuery.length() - 1); listScrollY = 0;
         }
@@ -592,6 +685,13 @@ public class ClickGui extends Screen {
 
     @Override
     public boolean charTyped(char c, int mods) {
+        if (focusedStepKey != null) {
+            if (c >= '0' && c <= '9' && stepBuffer.length() < 9) {
+                stepBuffer.append(c);
+                return true;
+            }
+            return false;
+        }
         if (searchFocused && c >= 32 && searchQuery.length() < 24) {
             searchQuery += c; listScrollY = 0; return true;
         }
