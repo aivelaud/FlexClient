@@ -89,6 +89,7 @@ public class ModuleManager {
         reg("WorldCopy",     "World",    "Çevrendeki dünyayı kopyalar (blok/entity/tile-entity)");
         reg("LobbyCopy",     "World",    "Lobi yapısını kopyalar (blok/banner/armor-stand)");
         reg("Mix",           "World",    "Dünya + Lobi kopyalama birleşik modu");
+        reg("Paste",         "World",    "Kopyalanan JSON dosyasını singleplayer'da geri yükle");
     }
 
     private static void reg(String n, String c, String d) { modules.add(new Module(n, c, d)); }

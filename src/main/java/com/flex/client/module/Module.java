@@ -354,6 +354,19 @@ public class Module {
                 intSettings.put("lobbyRange",    32);
                 intSettings.put("maxBlocks",     50000);
                 break;
+            case "Paste":
+                stringSettings.put("mode",       "Relative");
+                stringSettings.put("file",       "latest");
+                boolSettings.put("placeBlocks",  true);
+                boolSettings.put("placeEntities", false);
+                boolSettings.put("placeTileEntities", true);
+                boolSettings.put("ignoreAir",    true);
+                boolSettings.put("preview",      false);
+                intSettings.put("blocksPerTick", 500);
+                intSettings.put("offsetX",       0);
+                intSettings.put("offsetY",       0);
+                intSettings.put("offsetZ",       0);
+                break;
             default: break;
         }
     }

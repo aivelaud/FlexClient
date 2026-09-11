@@ -56,10 +56,19 @@ public class FlexClient implements ClientModInitializer {
     private static final Map<Integer, Boolean> keybindState = new HashMap<>();
 
     private static int worldCopyCooldown = 0;
+    private static int pasteCooldown = 0;
     private static final List<NbtCompound> copiedBlocks = new ArrayList<>();
     private static final List<NbtCompound> copiedEntities = new ArrayList<>();
     private static boolean mixRunning = false;
     private static int mixPhase = 0;
+
+    // ── Paste state ──────────────────────────────────────────────────
+    private static int pasteOriginX = 0;
+    private static int pasteOriginY = 0;
+    private static int pasteOriginZ = 0;
+    private static int pasteIndex = 0;
+    private static String pasteFileName = null;
+    private static boolean pasteLoaded = false;
 
     private static final int BTN_X = 4, BTN_Y = 4, BTN_W = 72, BTN_H = 14;
 
@@ -162,6 +171,12 @@ public class FlexClient implements ClientModInitializer {
                 tickMix(client);
                 worldCopyCooldown = 20;
             }
+            // ── Paste ─────────────────────────────────────────────────────
+            if (ModuleManager.isEnabled("Paste") && pasteCooldown <= 0) {
+                tickPaste(client);
+                pasteCooldown = 10;
+            }
+            if (pasteCooldown > 0) pasteCooldown--;
             if (worldCopyCooldown > 0) worldCopyCooldown--;
 
             boolean md = GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
@@ -524,8 +539,15 @@ public class FlexClient implements ClientModInitializer {
             if (!dir.exists()) dir.mkdirs();
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
             File file = new File(dir, prefix + "_" + timestamp + ".json");
+
+            BlockPos origin = MinecraftClient.getInstance().player != null
+                ? MinecraftClient.getInstance().player.getBlockPos() : BlockPos.ORIGIN;
+
             StringBuilder sb = new StringBuilder();
-            sb.append("{\"blocks\":[");
+            sb.append("{\"origin\":{\"x\":").append(origin.getX());
+            sb.append(",\"y\":").append(origin.getY());
+            sb.append(",\"z\":").append(origin.getZ()).append("}");
+            sb.append(",\"blocks\":[");
             for (int i = 0; i < copiedBlocks.size(); i++) {
                 if (i > 0) sb.append(",");
                 NbtCompound b = copiedBlocks.get(i);
@@ -538,7 +560,11 @@ public class FlexClient implements ClientModInitializer {
             for (int i = 0; i < copiedEntities.size(); i++) {
                 if (i > 0) sb.append(",");
                 NbtCompound e = copiedEntities.get(i);
-                sb.append("{\"type\":\"").append(e.getString("type")).append("\"}");
+                sb.append("{\"type\":\"").append(e.getString("type")).append("\"");
+                sb.append(",\"x\":").append(e.getDouble("x"));
+                sb.append(",\"y\":").append(e.getDouble("y"));
+                sb.append(",\"z\":").append(e.getDouble("z"));
+                sb.append("}");
             }
             sb.append("]}");
             try (FileWriter fw = new FileWriter(file)) { fw.write(sb.toString()); }
@@ -557,6 +583,272 @@ public class FlexClient implements ClientModInitializer {
                     false);
             }
         }
+    }
+
+    // ── Paste: JSON'dan blokları singleplayer'da geri yükle ──────────
+    private static final List<int[]> pasteBlocks = new ArrayList<>();
+    private static final List<String> pasteBlockNames = new ArrayList<>();
+    private static final List<double[]> pasteEntityPos = new ArrayList<>();
+    private static final List<String> pasteEntityTypes = new ArrayList<>();
+
+    private void tickPaste(MinecraftClient client) {
+        if (client.player == null || client.world == null) return;
+        Module mod = ModuleManager.get("Paste");
+        if (mod == null) return;
+
+        // İlk açılışta JSON dosyasını yükle
+        if (!pasteLoaded) {
+            String fileSetting = mod.getStringSetting("file", "latest");
+            File file = findPasteFile(fileSetting);
+            if (file == null) {
+                client.player.sendMessage(net.minecraft.text.Text.literal(
+                    "\u00a7c[Paste] \u00a7fDosya bulunamadi! flexclient_copies klasörünü kontrol et."), false);
+                mod.setEnabled(false);
+                return;
+            }
+            loadPasteJson(file);
+            if (pasteBlocks.isEmpty()) {
+                client.player.sendMessage(net.minecraft.text.Text.literal(
+                    "\u00a7c[Paste] \u00a7fJSON dosyasinda blok yok veya format hatali."), false);
+                mod.setEnabled(false);
+                return;
+            }
+
+            // Origin ayarla
+            String mode = mod.getMode();
+            if (mode.equals("Relative")) {
+                pasteOriginX = client.player.getBlockPos().getX();
+                pasteOriginY = client.player.getBlockPos().getY();
+                pasteOriginZ = client.player.getBlockPos().getZ();
+            } else {
+                pasteOriginX = 0;
+                pasteOriginY = 0;
+                pasteOriginZ = 0;
+            }
+
+            pasteIndex = 0;
+            pasteFileName = file.getName();
+            client.player.sendMessage(net.minecraft.text.Text.literal(
+                "\u00a7b[Paste] \u00a7fYükleniyor: \u00a7e" + pasteFileName +
+                "\u00a7f — " + pasteBlocks.size() + " blok, " + pasteEntityPos.size() + " entite"), false);
+        }
+
+        int blocksPerTick = mod.getIntSetting("blocksPerTick", 500);
+        int offX = mod.getIntSetting("offsetX", 0);
+        int offY = mod.getIntSetting("offsetY", 0);
+        int offZ = mod.getIntSetting("offsetZ", 0);
+        boolean ignoreAir = mod.getSetting("ignoreAir");
+        int placed = 0;
+
+        while (pasteIndex < pasteBlocks.size() && placed < blocksPerTick) {
+            int[] coords = pasteBlocks.get(pasteIndex);
+            String blockName = pasteBlockNames.get(pasteIndex);
+            pasteIndex++;
+
+            if (ignoreAir && blockName.contains("air")) continue;
+
+            BlockPos targetPos = new BlockPos(
+                coords[0] - pasteOriginX + client.player.getBlockPos().getX() + offX,
+                coords[1] - pasteOriginY + client.player.getBlockPos().getY() + offY,
+                coords[2] - pasteOriginZ + client.player.getBlockPos().getZ() + offZ
+            );
+
+            net.minecraft.block.Block block = parseBlock(blockName);
+            if (block == null) continue;
+
+            BlockState state = block.getDefaultState();
+            try {
+                client.world.setBlockState(targetPos, state, net.minecraft.block.Block.NOTIFY_ALL);
+                placed++;
+            } catch (Exception ignored) {}
+        }
+
+        // Entities
+        if (pasteIndex >= pasteBlocks.size() && mod.getSetting("placeEntities")) {
+            for (int i = 0; i < pasteEntityPos.size(); i++) {
+                double[] pos = pasteEntityPos.get(i);
+                String type = pasteEntityTypes.get(i);
+                try {
+                    var entityType = net.minecraft.entity.EntityType.get(type);
+                    if (entityType.isPresent()) {
+                        Entity ent = entityType.get().create(client.world);
+                        if (ent != null) {
+                            ent.setPosition(
+                                pos[0] - pasteOriginX + client.player.getX() + offX,
+                                pos[1] - pasteOriginY + client.player.getY() + offY,
+                                pos[2] - pasteOriginZ + client.player.getZ() + offZ
+                            );
+                            client.world.spawnEntity(ent);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+            pasteEntityPos.clear();
+            pasteEntityTypes.clear();
+        }
+
+        // Tamamlandı
+        if (pasteIndex >= pasteBlocks.size()) {
+            client.player.sendMessage(net.minecraft.text.Text.literal(
+                "\u00a7a[Paste] \u00a7fTamamlandi! " + pasteBlocks.size() + " blok yerlestirildi."), false);
+            pasteLoaded = false;
+            pasteBlocks.clear();
+            pasteBlockNames.clear();
+            mod.setEnabled(false);
+        }
+    }
+
+    private File findPasteFile(String fileSetting) {
+        File mcDir = MinecraftClient.getInstance().runDirectory;
+        File dir = new File(mcDir, "flexclient_copies");
+        if (!dir.exists()) return null;
+
+        if (fileSetting.equals("latest")) {
+            File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
+            if (files == null || files.length == 0) return null;
+            File latest = files[0];
+            for (File f : files) if (f.lastModified() > latest.lastModified()) latest = f;
+            return latest;
+        }
+
+        File f = new File(dir, fileSetting);
+        if (f.exists()) return f;
+        // Kısmi match dene
+        File[] files = dir.listFiles((d, name) -> name.contains(fileSetting));
+        if (files != null && files.length > 0) return files[0];
+        return null;
+    }
+
+    private void loadPasteJson(File file) {
+        pasteBlocks.clear();
+        pasteBlockNames.clear();
+        pasteEntityPos.clear();
+        pasteEntityTypes.clear();
+        pasteLoaded = true;
+
+        try {
+            String content = new String(java.nio.file.Files.readAllBytes(file.toPath()));
+            // Basit JSON parse — harici kütüphane olmadan
+            // blocks array'ini bul
+            int blocksStart = content.indexOf("\"blocks\":[");
+            if (blocksStart < 0) return;
+            blocksStart += "\"blocks\":[".length();
+
+            int depth = 1;
+            int i = blocksStart;
+            int blockStart = -1;
+            while (i < content.length() && depth > 0) {
+                char c = content.charAt(i);
+                if (c == '{') {
+                    if (depth == 1) blockStart = i;
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 1 && blockStart >= 0) {
+                        String blockJson = content.substring(blockStart, i + 1);
+                        parseBlockEntry(blockJson);
+                        blockStart = -1;
+                    }
+                } else if (c == ']') {
+                    depth--;
+                }
+                i++;
+            }
+
+            // entities array'ini bul
+            int entStart = content.indexOf("\"entities\":[");
+            if (entStart >= 0) {
+                entStart += "\"entities\":[".length();
+                depth = 1;
+                i = entStart;
+                blockStart = -1;
+                while (i < content.length() && depth > 0) {
+                    char c = content.charAt(i);
+                    if (c == '{') {
+                        if (depth == 1) blockStart = i;
+                        depth++;
+                    } else if (c == '}') {
+                        depth--;
+                        if (depth == 1 && blockStart >= 0) {
+                            String entJson = content.substring(blockStart, i + 1);
+                            parseEntityEntry(entJson);
+                            blockStart = -1;
+                        }
+                    } else if (c == ']') {
+                        depth--;
+                    }
+                    i++;
+                }
+            }
+        } catch (Exception e) {
+            pasteLoaded = false;
+        }
+    }
+
+    private void parseBlockEntry(String json) {
+        try {
+            int x = jsonIntValue(json, "\"x\":");
+            int y = jsonIntValue(json, "\"y\":");
+            int z = jsonIntValue(json, "\"z\":");
+            String block = jsonStringValue(json, "\"block\":\"");
+            pasteBlocks.add(new int[]{x, y, z});
+            pasteBlockNames.add(block);
+        } catch (Exception ignored) {}
+    }
+
+    private void parseEntityEntry(String json) {
+        try {
+            String type = jsonStringValue(json, "\"type\":\"");
+            double x = jsonDoubleValue(json, "\"x\":");
+            double y = jsonDoubleValue(json, "\"y\":");
+            double z = jsonDoubleValue(json, "\"z\":");
+            pasteEntityTypes.add(type);
+            pasteEntityPos.add(new double[]{x, y, z});
+        } catch (Exception ignored) {}
+    }
+
+    private int jsonIntValue(String json, String key) {
+        int idx = json.indexOf(key);
+        if (idx < 0) return 0;
+        idx += key.length();
+        int end = idx;
+        while (end < json.length() && (Character.isDigit(json.charAt(end)) || json.charAt(end) == '-'))
+            end++;
+        return Integer.parseInt(json.substring(idx, end).trim());
+    }
+
+    private double jsonDoubleValue(String json, String key) {
+        int idx = json.indexOf(key);
+        if (idx < 0) return 0;
+        idx += key.length();
+        int end = idx;
+        while (end < json.length() && (Character.isDigit(json.charAt(end)) ||
+               json.charAt(end) == '.' || json.charAt(end) == '-'))
+            end++;
+        return Double.parseDouble(json.substring(idx, end).trim());
+    }
+
+    private String jsonStringValue(String json, String key) {
+        int idx = json.indexOf(key);
+        if (idx < 0) return "";
+        idx += key.length();
+        int end = json.indexOf("\"", idx);
+        if (end < 0) return "";
+        return json.substring(idx, end);
+    }
+
+    private net.minecraft.block.Block parseBlock(String blockName) {
+        if (blockName == null || blockName.isEmpty()) return null;
+        // Format: "Block{minecraft:stone}" → "minecraft:stone"
+        String cleaned = blockName;
+        if (cleaned.contains("minecraft:")) {
+            int s = cleaned.indexOf("minecraft:");
+            int e = cleaned.indexOf("}", s);
+            if (e < 0) e = cleaned.length();
+            cleaned = cleaned.substring(s, e);
+        }
+        return net.minecraft.registry.Registries.BLOCK.get(
+            net.minecraft.util.Identifier.tryParse(cleaned));
     }
 
     private int getCatColor(String cat) {
