@@ -382,7 +382,7 @@ public class WorldFolderExporter {
     private static String getBlockId(BlockState state) {
         if (state == null || state.isAir()) return "minecraft:air";
         try {
-            return net.minecraft.util.registry.Registry.BLOCK.getId(state.getBlock()).toString();
+            return net.minecraft.registry.Registry.BLOCK.getId(state.getBlock()).toString();
         } catch (Exception e) {
             return "minecraft:stone";
         }
