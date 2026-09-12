@@ -1,30 +1,32 @@
 package com.flex.client.world;
 
-import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtDouble;
+import net.minecraft.nbt.NbtFloat;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtList;
+import net.minecraft.nbt.NbtString;
 import net.minecraft.state.property.Property;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.ChunkSection;
 import net.minecraft.world.chunk.WorldChunk;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.GZIPOutputStream;
 
 /**
  * Minecraft 1.20.1 uyumlu gerçek dünya klasörü export eden yardımcı.
@@ -34,6 +36,8 @@ import java.util.Map;
  * Bu klasör doğrudan .minecraft/saves/ altına kopyalanarak singleplayer'da açılabilir.
  */
 public class WorldFolderExporter {
+
+    private static final int DATA_VERSION = 3465;
 
     public static File exportWorld(String worldName, int range) {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -69,9 +73,6 @@ public class WorldFolderExporter {
         return worldDir;
     }
 
-    /**
-     * Client tarafında yüklü chunk'lardan standart Anvil .mca region dosyaları oluştur.
-     */
     private static int[] generateRegionFilesFromLoadedChunks(World world, File regionDir, int range) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null) return new int[]{0, 0};
@@ -109,9 +110,6 @@ public class WorldFolderExporter {
         return new int[]{regionsGenerated, totalChunks};
     }
 
-    /**
-     * Tek bir region (.mca) dosyası yaz — Anvil formatı.
-     */
     private static int writeRegionFile(World world, File regionDir, int rx, int rz,
                                         int originChunkX, int originChunkZ, int chunkRange) {
         File regionFile = new File(regionDir, "r." + rx + "." + rz + ".mca");
@@ -128,6 +126,9 @@ public class WorldFolderExporter {
                 int distZ = Math.abs(worldChunkZ - originChunkZ);
                 if (distX > chunkRange || distZ > chunkRange) continue;
 
+                // Sadece gerçekten yüklü chunk'ları yaz — boş/yarım chunk üretme
+                if (!world.getChunkManager().isChunkLoaded(worldChunkX, worldChunkZ)) continue;
+
                 int chunkIndex = cz * 32 + cx;
                 byte[] nbtData = serializeChunk(world, worldChunkX, worldChunkZ);
                 if (nbtData != null) {
@@ -142,7 +143,7 @@ public class WorldFolderExporter {
 
         try (RandomAccessFile raf = new RandomAccessFile(regionFile, "rw")) {
             raf.setLength(0);
-            raf.write(new byte[8192]); // header placeholder
+            raf.write(new byte[8192]); // location + timestamp tables
 
             int sectorOffset = 2;
             int[] locations = new int[1024];
@@ -154,29 +155,29 @@ public class WorldFolderExporter {
                 }
 
                 byte[] data = chunkDataArray[i];
-                int dataLen = data.length;
-                int sectors = (dataLen + 5 + 4095) / 4096;
+                // Anvil: length = compression_type(1) + compressed payload
+                int payloadLen = data.length + 1;
+                int sectors = (payloadLen + 4 + 4095) / 4096;
 
-                locations[i] = (sectorOffset << 8) | sectors;
+                locations[i] = (sectorOffset << 8) | (sectors & 0xFF);
 
                 raf.seek(sectorOffset * 4096L);
 
-                // 4-byte length + 1-byte compression (2=zlib) + data
-                raf.writeByte((dataLen >> 24) & 0xFF);
-                raf.writeByte((dataLen >> 16) & 0xFF);
-                raf.writeByte((dataLen >> 8) & 0xFF);
-                raf.writeByte(dataLen & 0xFF);
-                raf.writeByte(2);
+                raf.writeByte((payloadLen >> 24) & 0xFF);
+                raf.writeByte((payloadLen >> 16) & 0xFF);
+                raf.writeByte((payloadLen >> 8) & 0xFF);
+                raf.writeByte(payloadLen & 0xFF);
+                // NbtIo / GZIPOutputStream → compression type 1 (gzip), not 2 (zlib)
+                raf.writeByte(1);
                 raf.write(data);
 
-                int written = 5 + dataLen;
+                int written = 4 + payloadLen;
                 int padLen = (sectors * 4096) - written;
                 if (padLen > 0) raf.write(new byte[padLen]);
 
                 sectorOffset += sectors;
             }
 
-            // Location table
             raf.seek(0);
             for (int i = 0; i < 1024; i++) {
                 raf.writeByte((locations[i] >> 24) & 0xFF);
@@ -185,7 +186,6 @@ public class WorldFolderExporter {
                 raf.writeByte(locations[i] & 0xFF);
             }
 
-            // Timestamp table
             for (int i = 0; i < 1024; i++) {
                 int ts = chunkTimestamps[i];
                 raf.writeByte((ts >> 24) & 0xFF);
@@ -202,63 +202,89 @@ public class WorldFolderExporter {
     }
 
     /**
-     * Bir chunk'ı Anvil NBT formatında serialize et.
-     * 1.20.1 chunk NBT yapısı (Level altında):
-     *   xPos, zPos, Status, sections[], Heightmaps, block_entities
+     * 1.18+ Anvil chunk NBT: alanlar kökte (Level sarmalayıcısı YOK).
      */
     private static byte[] serializeChunk(World world, int chunkX, int chunkZ) {
         try {
             WorldChunk chunk = world.getChunk(chunkX, chunkZ);
             if (chunk == null) return null;
 
+            int bottomSection = world.getBottomSectionCoord();
+            int bottomY = world.getBottomY();
+
             NbtCompound root = new NbtCompound();
-            NbtCompound level = new NbtCompound();
+            root.putInt("DataVersion", DATA_VERSION);
+            root.putInt("xPos", chunkX);
+            root.putInt("yPos", bottomSection);
+            root.putInt("zPos", chunkZ);
+            root.putString("Status", "minecraft:full");
+            root.putLong("InhabitedTime", 0L);
+            root.putLong("LastUpdate", world.getTime());
+            root.putBoolean("isLightOn", true);
+            root.put("block_ticks", new NbtList());
+            root.put("fluid_ticks", new NbtList());
+            root.put("PostProcessing", new NbtList());
+            root.put("structures", new NbtCompound());
 
-            level.putInt("xPos", chunkX);
-            level.putInt("zPos", chunkZ);
-            level.putString("Status", "full");
-            level.putLong("InhabitedTime", 0L);
-            level.putLong("LastUpdate", world.getTime());
-
-            // --- Section'lar ---
             NbtList sectionsList = new NbtList();
             ChunkSection[] sections = chunk.getSectionArray();
-            int minSectionY = world.getBottomSectionCoord() >> 4;
+
+            int[] surfaceHeights = new int[256];
+            int[] motionHeights = new int[256];
+            Arrays.fill(surfaceHeights, 0);
+            Arrays.fill(motionHeights, 0);
 
             for (int i = 0; i < sections.length; i++) {
                 ChunkSection section = sections[i];
-                if (section == null) continue;
+                int sectionY = bottomSection + i;
+                if (section == null || section.isEmpty()) continue;
 
                 NbtCompound sectionNbt = new NbtCompound();
-                sectionNbt.putByte("Y", (byte) (minSectionY + i));
+                sectionNbt.putByte("Y", (byte) sectionY);
 
-                // Block states — manuel palette + packed data
-                NbtCompound blockStatesNbt = serializeSectionBlocks(world, chunkX, chunkZ, minSectionY + i);
-                sectionNbt.put("block_states", blockStatesNbt);
+                BlockState[] states = readSectionStates(section);
+                sectionNbt.put("block_states", buildPaletteNbt(states));
 
-                // Biomes — varsayılan
                 NbtCompound biomesNbt = new NbtCompound();
                 NbtList biomePalette = new NbtList();
-                biomePalette.add(net.minecraft.nbt.NbtString.of("minecraft:plains"));
+                biomePalette.add(NbtString.of("minecraft:plains"));
                 biomesNbt.put("palette", biomePalette);
                 sectionNbt.put("biomes", biomesNbt);
 
-                // Light — tam aydınlık (0xFF = her nibble 15)
+                // Tam aydınlık — isLightOn=true ile birlikte karanlık dünyayı engeller
                 sectionNbt.putByteArray("BlockLight", fullLightArray());
                 sectionNbt.putByteArray("SkyLight", fullLightArray());
 
                 sectionsList.add(sectionNbt);
+
+                // Heightmap: her section'daki en yüksek dolu blok (tüm section'lar boyunca max tutulur)
+                int baseY = sectionY << 4;
+                for (int bx = 0; bx < 16; bx++) {
+                    for (int bz = 0; bz < 16; bz++) {
+                        int col = (bz << 4) | bx;
+                        for (int by = 15; by >= 0; by--) {
+                            BlockState st = states[(by << 8) | (bz << 4) | bx];
+                            if (st == null || st.isAir()) continue;
+                            int packed = (baseY + by) - bottomY + 1;
+                            if (packed > surfaceHeights[col]) surfaceHeights[col] = packed;
+                            if (packed > motionHeights[col]) motionHeights[col] = packed;
+                            break;
+                        }
+                    }
+                }
             }
-            level.put("sections", sectionsList);
+            root.put("sections", sectionsList);
 
-            // --- Heightmaps ---
+            // Heightmap'ler boş bırakılırsa lighting/occlusion kırılır → karanlık + görünmez blok
             NbtCompound heightmaps = new NbtCompound();
-            long[] emptyHeightmap = new long[37]; // 16x16 -> 37 longs (9 bits per entry)
-            java.util.Arrays.fill(emptyHeightmap, 0L);
-            heightmaps.putLongArray("WORLD_SURFACE", emptyHeightmap);
-            level.put("Heightmaps", heightmaps);
+            heightmaps.putLongArray("WORLD_SURFACE", packHeightmap(surfaceHeights));
+            heightmaps.putLongArray("WORLD_SURFACE_WG", packHeightmap(surfaceHeights));
+            heightmaps.putLongArray("MOTION_BLOCKING", packHeightmap(motionHeights));
+            heightmaps.putLongArray("MOTION_BLOCKING_NO_LEAVES", packHeightmap(motionHeights));
+            heightmaps.putLongArray("OCEAN_FLOOR", packHeightmap(motionHeights));
+            heightmaps.putLongArray("OCEAN_FLOOR_WG", packHeightmap(motionHeights));
+            root.put("Heightmaps", heightmaps);
 
-            // --- Block entities ---
             NbtList blockEntities = new NbtList();
             try {
                 var beMap = chunk.getBlockEntities();
@@ -266,88 +292,70 @@ public class WorldFolderExporter {
                     for (var entry : beMap.entrySet()) {
                         BlockPos bePos = entry.getKey();
                         var be = entry.getValue();
-                        if (be != null) {
-                            NbtCompound beNbt = new NbtCompound();
-                            try {
-                                java.lang.reflect.Method m = be.getClass().getMethod("writeNbt", NbtCompound.class);
-                                m.setAccessible(true);
-                                m.invoke(be, beNbt);
-                                beNbt.putInt("x", bePos.getX());
-                                beNbt.putInt("y", bePos.getY());
-                                beNbt.putInt("z", bePos.getZ());
-                                blockEntities.add(beNbt);
-                            } catch (Exception ignored) {}
-                        }
+                        if (be == null) continue;
+                        NbtCompound beNbt = new NbtCompound();
+                        try {
+                            java.lang.reflect.Method m = be.getClass().getMethod("writeNbt", NbtCompound.class);
+                            m.setAccessible(true);
+                            m.invoke(be, beNbt);
+                            beNbt.putInt("x", bePos.getX());
+                            beNbt.putInt("y", bePos.getY());
+                            beNbt.putInt("z", bePos.getZ());
+                            if (!beNbt.contains("id")) {
+                                try {
+                                    var id = net.minecraft.registry.Registries.BLOCK_ENTITY_TYPE.getId(be.getType());
+                                    if (id != null) beNbt.putString("id", id.toString());
+                                } catch (Exception ignored) {}
+                            }
+                            blockEntities.add(beNbt);
+                        } catch (Exception ignored) {}
                     }
                 }
             } catch (Exception ignored) {}
-            level.put("block_entities", blockEntities);
+            root.put("block_entities", blockEntities);
 
-            root.put("Level", level);
-            root.putInt("DataVersion", 3465);
-
-            // NBT'yi compressed byte[] olarak yaz
-            File tmpFile = File.createTempFile("flexchunk", ".nbt");
-            NbtIo.writeCompressed(root, tmpFile);
-            byte[] data = Files.readAllBytes(tmpFile.toPath());
-            tmpFile.delete();
-            return data;
+            return compressGzipNbt(root);
 
         } catch (Exception e) {
             return null;
         }
     }
 
-    /**
-     * Bir chunk section'daki tüm blokları okuyup NBT palette + packed data üret.
-     * 16x16x16 = 4096 blok pozisyonu.
-     */
-    private static NbtCompound serializeSectionBlocks(World world, int chunkX, int chunkZ, int sectionY) {
-        NbtCompound nbt = new NbtCompound();
-
-        int baseX = chunkX << 4;
-        int baseY = sectionY << 4;
-        int baseZ = chunkZ << 4;
-
-        // Her blok pozisyonu için BlockState oku
+    private static BlockState[] readSectionStates(ChunkSection section) {
         BlockState[] states = new BlockState[4096];
-        for (int bx = 0; bx < 16; bx++) {
-            for (int by = 0; by < 16; by++) {
-                for (int bz = 0; bz < 16; bz++) {
-                    int index = (by << 8) | (bz << 4) | bx; // Anvil index sırası: y >> z >> x
-                    BlockPos pos = new BlockPos(baseX + bx, baseY + by, baseZ + bz);
-                    states[index] = world.getBlockState(pos);
+        for (int by = 0; by < 16; by++) {
+            for (int bz = 0; bz < 16; bz++) {
+                for (int bx = 0; bx < 16; bx++) {
+                    int index = (by << 8) | (bz << 4) | bx;
+                    try {
+                        states[index] = section.getBlockState(bx, by, bz);
+                    } catch (Exception e) {
+                        states[index] = net.minecraft.block.Blocks.AIR.getDefaultState();
+                    }
                 }
             }
         }
+        return states;
+    }
 
-        // Palette oluştur — her unique block state için bir entry
+    private static NbtCompound buildPaletteNbt(BlockState[] states) {
+        NbtCompound nbt = new NbtCompound();
+
         Map<String, Integer> paletteMap = new LinkedHashMap<>();
         List<NbtCompound> paletteEntries = new ArrayList<>();
+        int[] indices = new int[4096];
 
-        for (BlockState state : states) {
-            String blockId = getBlockId(state);
-            if (!paletteMap.containsKey(blockId)) {
+        for (int i = 0; i < 4096; i++) {
+            BlockState state = states[i];
+            String key = stateKey(state);
+            Integer existing = paletteMap.get(key);
+            if (existing == null) {
                 int idx = paletteEntries.size();
-                paletteMap.put(blockId, idx);
-
-                NbtCompound entry = new NbtCompound();
-                entry.putString("Name", blockId);
-
-                // Properties (yön, su seviyesi vb.)
-                NbtCompound props = new NbtCompound();
-                try {
-                    for (var propEntry : state.getEntries().entrySet()) {
-                        Property<?> prop = propEntry.getKey();
-                        Comparable<?> val = propEntry.getValue();
-                        props.putString(prop.getName(), val.toString());
-                    }
-                } catch (Exception ignored) {}
-
-                if (!props.getKeys().isEmpty()) {
-                    entry.put("Properties", props);
-                }
-                paletteEntries.add(entry);
+                paletteMap.put(key, idx);
+                paletteEntries.add(stateToPaletteEntry(state));
+                indices[i] = idx;
+            } else {
+                indices[i] = existing;
             }
         }
 
@@ -355,7 +363,6 @@ public class WorldFolderExporter {
         for (NbtCompound entry : paletteEntries) paletteList.add(entry);
         nbt.put("palette", paletteList);
 
-        // Packed data — eğer palette > 1 ise
         if (paletteMap.size() > 1) {
             int bits = Math.max(4, Integer.SIZE - Integer.numberOfLeadingZeros(paletteMap.size() - 1));
             int blocksPerLong = 64 / bits;
@@ -363,22 +370,43 @@ public class WorldFolderExporter {
             long[] packed = new long[longCount];
 
             for (int i = 0; i < 4096; i++) {
-                String blockId = getBlockId(states[i]);
-                int paletteIdx = paletteMap.getOrDefault(blockId, 0);
+                int paletteIdx = indices[i];
                 int longIdx = i / blocksPerLong;
                 int bitOffset = (i % blocksPerLong) * bits;
                 packed[longIdx] |= ((long) paletteIdx & ((1L << bits) - 1)) << bitOffset;
             }
-
             nbt.putLongArray("data", packed);
         }
 
         return nbt;
     }
 
-    /**
-     * BlockState'ten registry ID'sini al (örn: "minecraft:stone")
-     */
+    private static String stateKey(BlockState state) {
+        if (state == null || state.isAir()) return "minecraft:air";
+        StringBuilder sb = new StringBuilder(getBlockId(state));
+        try {
+            for (var propEntry : state.getEntries().entrySet()) {
+                Property<?> prop = propEntry.getKey();
+                sb.append('|').append(prop.getName()).append('=').append(propEntry.getValue());
+            }
+        } catch (Exception ignored) {}
+        return sb.toString();
+    }
+
+    private static NbtCompound stateToPaletteEntry(BlockState state) {
+        NbtCompound entry = new NbtCompound();
+        entry.putString("Name", getBlockId(state));
+        try {
+            NbtCompound props = new NbtCompound();
+            for (var propEntry : state.getEntries().entrySet()) {
+                Property<?> prop = propEntry.getKey();
+                props.putString(prop.getName(), propEntry.getValue().toString());
+            }
+            if (!props.getKeys().isEmpty()) entry.put("Properties", props);
+        } catch (Exception ignored) {}
+        return entry;
+    }
+
     private static String getBlockId(BlockState state) {
         if (state == null || state.isAir()) return "minecraft:air";
         try {
@@ -388,18 +416,35 @@ public class WorldFolderExporter {
         }
     }
 
-    /**
-     * 2048 byte'lık tam aydınlık light array'i (her nibble = 15)
-     */
+    private static long[] packHeightmap(int[] values) {
+        // 256 entry, 9 bit — 1.18+ world height
+        int bits = 9;
+        int perLong = 64 / bits;
+        long[] data = new long[(256 + perLong - 1) / perLong];
+        for (int i = 0; i < 256; i++) {
+            int v = Math.max(0, Math.min((1 << bits) - 1, values[i]));
+            int longIdx = i / perLong;
+            int bitOffset = (i % perLong) * bits;
+            data[longIdx] |= ((long) v) << bitOffset;
+        }
+        return data;
+    }
+
     private static byte[] fullLightArray() {
         byte[] arr = new byte[2048];
-        java.util.Arrays.fill(arr, (byte) 0xFF);
+        Arrays.fill(arr, (byte) 0xFF);
         return arr;
     }
 
-    /**
-     * level.dat oluştur — Minecraft'ın dünyayı tanıması için.
-     */
+    private static byte[] compressGzipNbt(NbtCompound root) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
+        try (GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
+            // NbtIo.write(output, compound) — uncompressed NBT into gzip stream
+            NbtIo.write(root, new java.io.DataOutputStream(gzip));
+        }
+        return baos.toByteArray();
+    }
+
     private static void generateLevelDat(File worldDir, World world) {
         try {
             MinecraftClient client = MinecraftClient.getInstance();
@@ -413,52 +458,52 @@ public class WorldFolderExporter {
             data.putInt("SpawnX", spawnX);
             data.putInt("SpawnY", spawnY);
             data.putInt("SpawnZ", spawnZ);
-            data.putLong("RandomSeed", System.currentTimeMillis());
+            data.putLong("RandomSeed", 0L);
             data.putString("LevelName", "FlexClient_" + worldDir.getName());
-            data.putString("generatorName", "default");
-            data.putInt("generatorVersion", 0);
-            data.putString("LevelGeneratorOptions", "");
-            data.putInt("GameType", 1); // Creative
-            data.putBoolean("MapFeatures", true);
+            data.putInt("GameType", 1);
+            data.putBoolean("MapFeatures", false);
             data.putBoolean("allowCommands", true);
             data.putBoolean("hardcore", false);
             data.putInt("Difficulty", 0);
             data.putBoolean("DifficultyLocked", false);
-            data.putLong("Time", 0);
-            data.putLong("DayTime", 6000); // Gündüz
+            data.putLong("Time", 1000L);
+            data.putLong("DayTime", 6000L);
             data.putInt("version", 19133);
-            data.putInt("DataVersion", 3465);
+            data.putInt("DataVersion", DATA_VERSION);
+            data.putBoolean("initialized", true);
+            data.putBoolean("raining", false);
+            data.putBoolean("thundering", false);
+            data.putInt("clearWeatherTime", 999999);
+            data.putInt("rainTime", 0);
+            data.putInt("thunderTime", 0);
 
-            // Player
             NbtCompound player = new NbtCompound();
-            player.putDouble("playerGameType", 1); // Creative
+            player.putInt("playerGameType", 1);
             player.put("Inventory", new NbtList());
             player.put("EnderItems", new NbtList());
 
             NbtList pos = new NbtList();
-            pos.add(net.minecraft.nbt.NbtDouble.of(spawnX + 0.5));
-            pos.add(net.minecraft.nbt.NbtDouble.of(spawnY + 0.5));
-            pos.add(net.minecraft.nbt.NbtDouble.of(spawnZ + 0.5));
+            pos.add(NbtDouble.of(spawnX + 0.5));
+            pos.add(NbtDouble.of(spawnY + 0.5));
+            pos.add(NbtDouble.of(spawnZ + 0.5));
             player.put("Pos", pos);
 
             NbtList rot = new NbtList();
-            rot.add(net.minecraft.nbt.NbtFloat.of(0.0f));
-            rot.add(net.minecraft.nbt.NbtFloat.of(0.0f));
+            rot.add(NbtFloat.of(0.0f));
+            rot.add(NbtFloat.of(0.0f));
             player.put("Rotation", rot);
-
             data.put("Player", player);
 
-            // Version
             NbtCompound version = new NbtCompound();
-            version.putInt("Id", 3465);
+            version.putInt("Id", DATA_VERSION);
             version.putString("Name", "1.20.1");
             version.putBoolean("Snapshot", false);
             data.put("Version", version);
 
-            // WorldGenSettings (1.20.1'de zorunlu)
+            // Flat void-benzeri generator: kopyalanmayan alanlar rastgele terrain üretmesin
             NbtCompound worldGenSettings = new NbtCompound();
-            worldGenSettings.putLong("seed", System.currentTimeMillis());
-            worldGenSettings.putBoolean("generate_features", true);
+            worldGenSettings.putLong("seed", 0L);
+            worldGenSettings.putBoolean("generate_features", false);
             worldGenSettings.putBoolean("bonus_chest", false);
 
             NbtCompound dimensions = new NbtCompound();
@@ -466,17 +511,13 @@ public class WorldFolderExporter {
             overworld.putString("type", "minecraft:overworld");
 
             NbtCompound generator = new NbtCompound();
-            generator.putString("type", "minecraft:noise");
+            generator.putString("type", "minecraft:flat");
 
-            NbtCompound genSettings = new NbtCompound();
-            genSettings.putString("type", "minecraft:overworld");
-            generator.put("settings", genSettings);
-
-            NbtCompound biomeSource = new NbtCompound();
-            biomeSource.putString("type", "minecraft:multi_noise");
-            NbtList preset = new NbtList();
-            biomeSource.put("preset", preset);
-            generator.put("biome_source", biomeSource);
+            NbtCompound settings = new NbtCompound();
+            settings.putString("biome", "minecraft:plains");
+            settings.put("layers", new NbtList()); // boş = void
+            settings.put("structures", new NbtCompound());
+            generator.put("settings", settings);
 
             overworld.put("generator", generator);
             dimensions.put("minecraft:overworld", overworld);
@@ -488,13 +529,9 @@ public class WorldFolderExporter {
             File levelDat = new File(worldDir, "level.dat");
             NbtIo.writeCompressed(root, levelDat);
 
-            File levelDatMcr = new File(worldDir, "level.dat_mcr");
-            NbtIo.writeCompressed(root, levelDatMcr);
-
-            // session.lock
             File sessionLock = new File(worldDir, "session.lock");
             try (FileOutputStream fos = new FileOutputStream(sessionLock)) {
-                fos.write(0);
+                fos.write(new byte[]{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
             }
 
         } catch (Exception e) {
