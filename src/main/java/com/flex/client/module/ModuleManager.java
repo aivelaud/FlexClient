@@ -89,6 +89,7 @@ public class ModuleManager {
         reg("WorldCopy",     "World",    "Çevrendeki dünyayı kopyalar (blok/entity/tile-entity)");
         reg("LobbyCopy",     "World",    "Lobi yapısını kopyalar (blok/banner/armor-stand)");
         reg("Mix",           "World",    "Dünya + Lobi kopyalama birleşik modu");
+        reg("KlasorOlarak",  "World",    "Dünyayı gerçek MC klasörü olarak kopyala (level.dat, region, entities — saves'e at, direkt oyna)");
         reg("Paste",         "World",    "Kopyalanan JSON dosyasını singleplayer'da geri yükle");
     }
 

@@ -50,6 +50,7 @@ public class ClickGui extends Screen {
         MODE_OPTIONS.put("WorldCopy",   new String[]{"Full","BlocksOnly","EntitiesOnly"});
         MODE_OPTIONS.put("LobbyCopy",   new String[]{"Area","Full","Structure"});
         MODE_OPTIONS.put("Mix",         new String[]{"Both","WorldOnly","LobbyOnly"});
+        MODE_OPTIONS.put("KlasorOlarak", new String[]{"Full","RegionOnly","EntitiesOnly"});
     }
 
     /**
@@ -98,6 +99,7 @@ public class ClickGui extends Screen {
 
     private int getIntStep(String key) {
         if ("Mix.maxBlocks".equals(key)) return intSteps.getOrDefault(key, 500000);
+        if ("KlasorOlarak.maxBlocks".equals(key)) return intSteps.getOrDefault(key, 500000);
         return intSteps.getOrDefault(key, 1);
     }
 

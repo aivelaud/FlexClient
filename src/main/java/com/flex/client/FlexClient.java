@@ -10,6 +10,7 @@ import com.flex.client.xray.AntiXrayBypass;
 import com.flex.client.xray.ChunkOreScanner;
 import com.flex.client.xray.XrayHUD;
 import com.flex.client.xray.XrayRealOreRenderer;
+import com.flex.client.world.WorldFolderExporter;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -170,6 +171,11 @@ public class FlexClient implements ClientModInitializer {
             if (ModuleManager.isEnabled("Mix") && worldCopyCooldown <= 0) {
                 tickMix(client);
                 worldCopyCooldown = 20;
+            }
+            // ── KlasorOlarak ────────────────────────────────────────────
+            if (ModuleManager.isEnabled("KlasorOlarak") && worldCopyCooldown <= 0) {
+                tickKlasorOlarak(client);
+                worldCopyCooldown = 40;
             }
             // ── Paste ─────────────────────────────────────────────────────
             if (ModuleManager.isEnabled("Paste") && pasteCooldown <= 0) {
@@ -860,5 +866,32 @@ public class FlexClient implements ClientModInitializer {
             case "World"    -> 0xFF00FFCC;
             default         -> 0xFF00FFCC;
         };
+    }
+
+    // ── KlasorOlarak: Dünyayı gerçek MC klasörü olarak kopyala ──────
+    private void tickKlasorOlarak(MinecraftClient client) {
+        if (client.player == null || client.world == null) return;
+        Module mod = ModuleManager.get("KlasorOlarak");
+        if (mod == null) return;
+
+        String worldName = mod.getStringSetting("worldName", "FlexWorld");
+        int range = mod.getIntSetting("range", 128);
+
+        client.player.sendMessage(net.minecraft.text.Text.literal(
+            "\u00a7b[KlasorOlarak] \u00a7fDünya klasörü oluşturuluyor..."), false);
+
+        File result = WorldFolderExporter.exportWorld(worldName, range);
+
+        if (result == null) {
+            client.player.sendMessage(net.minecraft.text.Text.literal(
+                "\u00a7c[KlasorOlarak] \u00a7fDünya kaydedilemedi! Dünyada olman gerekir."), false);
+        } else {
+            client.player.sendMessage(net.minecraft.text.Text.literal(
+                "\u00a7a[KlasorOlarak] \u00a7fTamamlandı! Klasör: \u00a7b" + result.getAbsolutePath()), false);
+            client.player.sendMessage(net.minecraft.text.Text.literal(
+                "\u00a7fBu klasörü \u00a7e.minecraft/saves/ \u00a7faltına kopyala ve singleplayer'da aç."), false);
+        }
+
+        mod.setEnabled(false);
     }
 }

@@ -354,6 +354,19 @@ public class Module {
                 intSettings.put("lobbyRange",    32);
                 intSettings.put("maxBlocks",     500000);
                 break;
+            case "KlasorOlarak":
+                stringSettings.put("mode",       "Full");
+                stringSettings.put("worldName",  "FlexWorld");
+                boolSettings.put("copyRegion",   true);
+                boolSettings.put("copyEntities", true);
+                boolSettings.put("copyLevelDat", true);
+                boolSettings.put("copyPlayerData", true);
+                boolSettings.put("copyAdvancements", true);
+                boolSettings.put("copyStats",    true);
+                boolSettings.put("copyData",     true);
+                intSettings.put("range",         128);
+                intSettings.put("maxBlocks",     500000);
+                break;
             case "Paste":
                 stringSettings.put("mode",       "Relative");
                 stringSettings.put("file",       "latest");
